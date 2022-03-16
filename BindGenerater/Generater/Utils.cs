@@ -524,17 +524,19 @@ namespace Generater
             if (type.IsGenericInstance)
             {
                 var gType = type as GenericInstanceType;
-                types.AddRange(gType.GenericArguments);
-                returnType = null;
+                invokMethod = gType.Resolve().Methods.Where(m => m.Name == "Invoke").FirstOrDefault();
+                //types.AddRange(gType.GenericArguments);
+                //returnType = null;
 
-                if (type.Name.StartsWith("Func"))
-                {
-                    returnType = types.Last();
-                    types.Remove(returnType);
-                }
-                return types;
+                //if (type.Name.StartsWith("Func"))
+                //{
+                //    returnType = types.Last();
+                //    types.Remove(returnType);
+                //}
+                //return types;
             }
-            else if(invokMethod != null)
+
+            if(invokMethod != null)
             {
                 foreach (var p in invokMethod.Parameters)
                 {
