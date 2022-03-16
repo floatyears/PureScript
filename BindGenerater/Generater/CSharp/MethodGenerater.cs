@@ -66,11 +66,18 @@ namespace Generater
 
         void GenGeter()
         {
-            if(genMethod.IsAbstract)
+            if (genMethod.ImplAttributes == MethodImplAttributes.InternalCall)
+            {
+                writer.WriteLine("[MethodImpl(MethodImplOptions.InternalCall)]", false);
+                writer.WriteLine("get");
+                return;
+            }
+            if (genMethod.IsAbstract)
             {
                 writer.WriteLine("get");
                 return;
             }
+            
             writer.Start("get");
             if(isNotImplement)
             {
@@ -88,6 +95,12 @@ namespace Generater
 
         void GenSeter()
         {
+            if (genMethod.ImplAttributes == MethodImplAttributes.InternalCall)
+            {
+                writer.WriteLine("[MethodImpl(MethodImplOptions.InternalCall)]", false);
+                writer.WriteLine("set");
+                return;
+            }
             if (genMethod.IsAbstract)
             {
                 writer.WriteLine("set");

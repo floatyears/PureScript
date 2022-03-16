@@ -62,6 +62,12 @@ namespace Generater
 
             var declear = Utils.GetMemberDelcear(genProperty);
 
+            //TODO:mono cecil库貌似无法获取到property的extern属性，所以假定internal call肯定是extern
+            if((genProperty.GetMethod != null && genProperty.GetMethod.ImplAttributes == MethodImplAttributes.InternalCall) 
+                || (genProperty.SetMethod != null && genProperty.SetMethod.ImplAttributes == MethodImplAttributes.InternalCall))
+            {
+                declear = declear.Replace("public", "public extern");
+            }
             CS.Writer.Start(declear);
 
             foreach (var m in methods)
