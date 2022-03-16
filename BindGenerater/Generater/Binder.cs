@@ -38,8 +38,11 @@ namespace Generater
         public static void Init(string outDir)
         {
             OutDir = outDir;
-            if (!Directory.Exists(outDir))
-                Directory.CreateDirectory(outDir);
+            if (Directory.Exists(outDir))
+            {
+                Directory.Delete(outDir, true);
+            }
+            Directory.CreateDirectory(outDir);
 
             Utils.IgnoreTypeSet.UnionWith(Config.Instance.CSharpIgnorTypes);
         }
