@@ -28,6 +28,10 @@ void init_il2cpp();
 
 #endif
 
+typedef void (*ThreadAttachDetachCallback)(Il2CppThread* thread);
+void il2cpp_set_thread_callback(ThreadAttachDetachCallback attach, ThreadAttachDetachCallback detach);
+Il2CppThread** il2cpp_get_all_threads(size_t* thread_count);
+
 Il2CppImage* il2cpp_get_image(const char* assembly);
 Il2CppClass* il2cpp_get_class(Il2CppImage* image, const char* _namespace, const char* name);
 Il2CppClass* il2cpp_search_class(const char* assembly, const char* _namespace, const char* name);

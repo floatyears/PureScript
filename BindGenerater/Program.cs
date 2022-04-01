@@ -12,6 +12,13 @@ using System.Threading.Tasks;
 
 namespace BindGenerater
 {
+    public class AsesemblyCheck
+    {
+        public string Assembly;
+        public string Source;
+        public string Filter;
+    }
+
     class Program
     {
 
@@ -21,6 +28,7 @@ namespace BindGenerater
             public HashSet<string> AdapterSet;
             public HashSet<string> InterpSet;
             public HashSet<string> Entry;
+            public List<AsesemblyCheck> AssembliesCheck;
         }
         public enum BindTarget
         {
@@ -51,8 +59,9 @@ namespace BindGenerater
              catch(Exception e)
              {
                  Console.Error.WriteLine(e.ToString());
+                //Console.ReadKey();
                  return 2;
-             }
+            }
             return 0;
         }
 
@@ -78,21 +87,23 @@ namespace BindGenerater
             string orignDir = Path.Combine(options.ScriptEngineDir, "Managed_orign");
             string adapterDir = Path.Combine(options.ScriptEngineDir, "Adapter");
 
-            Utils.CopyDir(orignDir,managedDir, ".dll");
+            Utils.CopyDir(orignDir, managedDir, ".dll");
             ReplaceMscorlib("lib", managedDir);
 
             Binder.Init(Path.Combine(adapterDir, "glue"));
-            CSCGenerater.Init(ToolsetPath, adapterDir,managedDir, options.AdapterSet);
+            CSCGenerater.Init(ToolsetPath, adapterDir, managedDir, options.AdapterSet, options.AssembliesCheck);
             CBinder.Init(Path.Combine(options.ScriptEngineDir, "generated"));
             AOTGenerater.Init(options.ScriptEngineDir);
 
+            var entryAssembly = AssemblyDefinition.ReadAssembly(Path.Combine(orignDir, options.Entry.First()));
+            CSCGenerater.corlib = AssemblyDefinition.ReadAssembly(Path.Combine(Path.GetDirectoryName(entryAssembly.MainModule.FileName), "mscorlib.dll"));
             var assemblySet = new HashSet<string>();
             foreach(var entry in options.Entry)
             {
                 Utils.CollectMonoAssembly(entry, orignDir, options.AdapterSet, assemblySet);
             }
 
-            options.AdapterSet.UnionWith(assemblySet.Where(assem => assem.StartsWith("UnityEngine.")));
+            options.AdapterSet.UnionWith(assemblySet.Where(assem => assem.StartsWith("UnityEngine.") || assem.StartsWith("Unity.")));
 
             foreach (var assembly in options.AdapterSet)
             {
@@ -208,7 +219,7 @@ namespace BindGenerater
                     CS.Writer.Start("LinePointTest");
                     CS.Writer.WriteLine("aa 1");
                     CS.Writer.WriteLine("aa 2");
-                    var resolverRes = new ClassResolver(null).Box("testObj");
+                    var resolverRes = new ClassResolver(null, new MemberTypeContext(MemberTypeSlot.None, MethodTypeSlot.None, null)).Box("testObj");
                     CS.Writer.WriteLine($"return {resolverRes}");
                     CS.Writer.End();
                 }

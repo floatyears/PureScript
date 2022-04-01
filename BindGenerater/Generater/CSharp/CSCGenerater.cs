@@ -17,7 +17,7 @@ namespace Generater
         static string[] addtionRef = new string[]
         {
             "mscorlib.dll",
-            "UnityEngine.CoreModule.dll",
+            //"UnityEngine.CoreModule.dll",
             //"PureScript.dll",
         };
 
@@ -46,8 +46,10 @@ namespace Generater
         private static string AdapterDir;
         private static HashSet<string> IgnoreRefSet = new HashSet<string>();
         private static Dictionary<string, CSCGenerater> WrapperDic = new Dictionary<string, CSCGenerater>();
+        private static List<BindGenerater.AsesemblyCheck> asesemblyCheck;
+        public static Mono.Cecil.AssemblyDefinition corlib;
 
-        public static void Init(string cscDir,string adapterDir, string outDir, HashSet<string> ignoreRefSet)
+        public static void Init(string cscDir,string adapterDir, string outDir, HashSet<string> ignoreRefSet, List<BindGenerater.AsesemblyCheck> assemblyChk)
         {
             CSCPath = Path.Combine(cscDir, Utils.IsWin32() ? "csc.exe":"csc") ;
             OutDir = outDir;
@@ -63,6 +65,8 @@ namespace Generater
             SetWrapper("Adapter.wrapper.dll");
             foreach (var file in AdapterWrapperSrc)
                 AdapterWrapperCompiler.AddSource(Path.Combine(adapterDir, file));
+
+            asesemblyCheck = assemblyChk;
         }
 
         public static void SetWrapper(string dllName)
@@ -91,6 +95,29 @@ namespace Generater
             foreach (var wrapper in list)
             {
                 wrapper.Gen();
+            }
+
+            for(var i = 0; i < asesemblyCheck.Count; i++)
+            {
+                var check = asesemblyCheck[i];
+                var checker = new CSCGenerater(Path.Combine(OutDir, check.Assembly));
+                checker.AddReference(AdapterCompiler.outName);
+                checker.AddReference("System.dll");
+                checker.AddReference("System.Core.dll");
+                foreach (var wrapper in list)
+                {
+                    checker.AddReference(wrapper.outName);
+                }
+                for(int j = 0; j < i; j++)
+                {
+                    checker.AddReference(Path.Combine(OutDir, asesemblyCheck[j].Assembly));
+                }
+                foreach (var f in Directory.GetFiles(check.Source, check.Filter, SearchOption.AllDirectories))
+                {
+                    checker.AddSource(f);
+                }
+                checker.AddDefine("UNITY_ANDROID");
+                checker.Gen();
             }
         }
 
@@ -132,7 +159,7 @@ namespace Generater
         public void AddReference(string target)
         {
             //if(!IgnoreRefSet.Contains(target))
-                refSet.Add(target);
+                refSet.Add(target.Replace("\\", "/"));
         }
         public void RemoveReference(string target)
         {
@@ -142,7 +169,7 @@ namespace Generater
 
         public void AddSource(string file)
         {
-            var path = Path.GetFullPath(file);
+            var path = Path.GetFullPath(file).Replace("\\", "/");
             srcSet.Add(path);
         }
 

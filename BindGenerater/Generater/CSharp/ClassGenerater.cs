@@ -36,7 +36,8 @@ namespace Generater
             RefNameSpace.Add("System");
             RefNameSpace.Add("PureScript.Mono");
             RefNameSpace.Add("System.Runtime.CompilerServices");
-            
+            RefNameSpace.Add("System.Runtime.InteropServices");
+
             if (writer == null)
             {
                 var filePath = Path.Combine(Binder.OutDir, $"Gen.{TypeFullName()}.cs");
@@ -113,13 +114,19 @@ namespace Generater
             {
                 foreach (MethodDefinition method in genType.Methods)
                 {
-                    if (method.IsConstructor && method.Parameters.Count == 0)
-                        hasDefaultConstructor = true;
+                    if (method.IsConstructor && method.Parameters.Count == 0) //防止base type的ctor被声明为private，子类无法定义默认的ctor
+                    {
+                        if (method.IsPublic)
+                        {
+                            hasDefaultConstructor = true;
+                        }
+                    }
+                        
 
                     if (IsCopyOrignNode(method))
                         continue;
                     CheckInterface(method);
-                    if ((method.IsPublic || genType.IsInterface) && !method.IsGetter && !method.IsSetter && !method.IsAddOn && !method.IsRemoveOn )
+                    if ((Utils.IsVisibleToOthers(method) || genType.IsInterface) && !method.IsGetter && !method.IsSetter && !method.IsAddOn && !method.IsRemoveOn )
                     {
                         var methodGener = new MethodGenerater(method);
                         methods.Add(methodGener);
@@ -254,7 +261,11 @@ namespace Generater
 
             isFullRetainType |= type.DoesSpecificTypeImplementInterface("IEnumerator");
 
-            if (type.IsEnum || type.IsDelegate() || type.IsInterface)
+            isFullRetainType |= Utils.IsAttribute(type);
+            //TODO: interface full retain
+            //isFullRetainType |= type.IsInterface;
+
+            if (type.IsEnum || type.IsDelegate() || type.IsInterface || Utils.IsAttribute(type))
                 return true;
 
             if (Utils.IsFullValueType(type) || isFullRetainType)

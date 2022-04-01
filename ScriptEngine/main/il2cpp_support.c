@@ -130,5 +130,14 @@ Il2CppObject * il2cpp_exception_property(Il2CppObject *obj, const char *name, ch
 	return NULL;
 }
 
+Il2CppThread** il2cpp_get_all_threads(size_t* thread_count)
+{
+	return il2cpp_thread_get_all_attached_threads(thread_count);
+}
+
+void il2cpp_set_thread_callback(ThreadAttachDetachCallback attach, ThreadAttachDetachCallback detach)
+{
+	il2cpp_set_thread_attach_detach_callback(attach, detach);
+}
 
 

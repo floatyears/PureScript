@@ -171,7 +171,7 @@ public static class PureScriptBuilder
 
         if (binder.ExitCode != 0)
         {
-            Debug.LogError("Run: " + argStr);
+            Debug.LogError("Run: " + monoPath + " " + argStr);
             var errorInfo = "Binder.exe run error. \n" + binder.StandardError.ReadToEnd();
             UnityEngine.Debug.LogError(errorInfo);
             throw new Exception(errorInfo);

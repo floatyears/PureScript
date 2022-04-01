@@ -7,65 +7,159 @@ using System.Threading.Tasks;
 
 namespace Generater
 {
+    [Flags]
+    public enum MemberTypeSlot
+    {
+        None = 0,
+
+        LocalVar = 0x1,
+
+        Parameter = 0x2,
+
+        ReturnType = 0x4,
+    }
+
+    public enum MethodTypeSlot
+    {
+        None = 0,
+
+        GeneratedMethod = 1,
+
+        GeneratedDelegate = 2,
+    }
+
+    public class MemberTypeContext
+    {
+        private MemberTypeSlot typeSlot;
+        private MethodTypeSlot methodType;
+        private IMemberDefinition context;
+
+        public MemberTypeContext(MemberTypeSlot typeSlot, MethodTypeSlot methodTypeSlot, IMemberDefinition memberDef)
+        {
+            this.typeSlot = typeSlot;
+            this.methodType = methodTypeSlot;
+            this.context = memberDef;
+        }
+
+        public IMemberDefinition memberDefinition { get { return context; } }
+
+        public bool IsGeneratedDelegate
+        {
+            get
+            {
+                return methodType == MethodTypeSlot.GeneratedDelegate;
+            }
+        }
+
+        public bool IsGenerated
+        {
+            get
+            {
+                return methodType == MethodTypeSlot.GeneratedDelegate || methodType == MethodTypeSlot.GeneratedMethod;
+            }
+        }
+
+        public bool IsReturnType
+        {
+            get
+            {
+                return (typeSlot & MemberTypeSlot.ReturnType) > 0;
+            }
+        }
+
+        public bool IsParamerterType
+        {
+            get
+            {
+                return (typeSlot & MemberTypeSlot.Parameter) > 0;
+            }
+        }
+
+    }
+
     public class TypeResolver
     {
         public static bool WrapperSide;
-        public static BaseTypeResolver Resolve(TypeReference _type, IMemberDefinition context = null)
+        public static BaseTypeResolver Resolve(TypeReference _type, IMemberDefinition _context = null, MemberTypeSlot slot = 0, MethodTypeSlot methodType = 0)
         {
             var type = _type.Resolve();
+            var context = new MemberTypeContext(slot, methodType, _context);
 
             if (Utils.IsDelegate(_type))
                 return new DelegateResolver(_type, context);
 
             if (_type.Name.Equals("Void"))
-                return new VoidResolver(_type);
+                return new VoidResolver(_type, context);
 
            // if (_type.Name.StartsWith("List`"))
            //     return new ListResolver(_type);
+            if(_type.IsArray)
+            {
+                return new ArrayResolver(_type, context);
+            }
 
             if (_type.Name.Equals("String") || _type.FullName.Equals("System.Object"))
-                return new StringResolver(_type);
+                return new StringResolver(_type, context);
             if (type != null && type.IsEnum)
-                return new EnumResolver(_type);
+                return new EnumResolver(_type, context);
 
             if (_type.IsGenericParameter || _type.IsGenericInstance || type == null)
-                return new GenericResolver(_type);
+                return new GenericResolver(_type, context);
 
             if (_type.IsPrimitive || _type.IsPointer)
-                return new BaseTypeResolver(_type);
+                return new BaseTypeResolver(_type, context);
 
             if (_type.FullName.StartsWith("System."))
-                return new SystemResolver(_type);
+                return new SystemResolver(_type, context);
 
             if (_type.IsValueType || (_type.IsByReference && _type.GetElementType().IsValueType))
-                return new StructResolver(_type);
+                return new StructResolver(_type, context);
 
-            return new ClassResolver(_type);
+            return new ClassResolver(_type, context);
 
         }
     }
 
     public class BaseTypeResolver
     {
+
         protected TypeReference type;
+
         public object data;
-        public BaseTypeResolver(TypeReference _type)
+
+        public MemberTypeContext context {  get; private set; }
+
+        public BaseTypeResolver(TypeReference _type, MemberTypeContext _context)
         {
             type = _type;
-        }
-        public virtual string Paramer(string name)
-        {
-            return $"{TypeName()} {name}";
+            context = _context;
         }
 
-        public virtual string LocalVariable(string name)
+        public virtual string ParamerSuffix()
         {
-            return Paramer(name);
+            return string.Empty;
         }
 
-        public virtual string TypeName()
+        public virtual string Paramer(string name, bool checkBlittable = false)
         {
-            return RealTypeName();
+            return $"{TypeName(checkBlittable)} {name}{ParamerSuffix()}";
+        }
+
+        public virtual string LocalVariable(string name, bool checkBlittable = false)
+        {
+            if(checkBlittable && !Utils.IsBlittableType(type))
+            {
+                return $"IntPtr {name}{ParamerSuffix()}";
+            }
+            else
+            {
+                return Paramer(name);
+            }
+        }
+
+        public virtual string TypeName(bool checkBlittable = false)
+        {
+            return RealTypeName(checkBlittable);
         }
 
         protected string Alias()
@@ -120,7 +214,7 @@ namespace Generater
                 return name;
         }
 
-        public string RealTypeName()
+        public string RealTypeName(bool checkBlittable = false)
         {
             var et = type.GetElementType();
 
@@ -135,7 +229,7 @@ namespace Generater
 
     public class VoidResolver : BaseTypeResolver
     {
-        public VoidResolver(TypeReference type) : base(type)
+        public VoidResolver(TypeReference type, MemberTypeContext context) : base(type, context)
         {
         }
 
@@ -144,7 +238,7 @@ namespace Generater
             return "";
         }
 
-        public override string TypeName()
+        public override string TypeName(bool checkBlittable = false)
         {
             return $"void";
         }
@@ -152,11 +246,11 @@ namespace Generater
 
     public class EnumResolver : BaseTypeResolver
     {
-        public EnumResolver(TypeReference type) : base(type)
+        public EnumResolver(TypeReference type, MemberTypeContext context) : base(type, context)
         {
         }
         
-        public override string TypeName()
+        public override string TypeName(bool checkBlittable = false)
         {
             return "int";
         }
@@ -186,19 +280,108 @@ namespace Generater
         }
     }
 
+    public class ArrayResolver : BaseTypeResolver
+    {
+        public ArrayResolver(TypeReference type, MemberTypeContext context) : base(type, context)
+        {
+
+        }
+
+        public override string TypeName(bool checkBlittable = false)
+        {
+            if (checkBlittable && !Utils.IsBlittableType(type))
+            {
+                return "IntPtr";
+            }
+            else
+            {
+                return base.TypeName();
+            }
+        }
+
+        /// <summary>
+        /// 理论上自动生成的delegate的，返回值是从mono传入到il2cpp，il2cpp再传回到mono，所以这里只需要传递gchandle
+        /// </summary>
+        /// <param name="name"></param>
+        /// <param name="previous"></param>
+        /// <returns></returns>
+        public override string Unbox(string name, bool previous)
+        {
+            if (CS.Writer.WriterType == CodeWriter.CodeWriterType.MonoBind)
+            {
+                if (context.IsGenerated && !context.IsParamerterType)
+                {
+                    if (context.IsGeneratedDelegate)
+                    {
+                        CS.Writer.WriteLine($"var {name}_gchandle = GCHandle.FromIntPtr({name})");
+                        CS.Writer.WriteLine($"var {name}_p = ({name}_gchandle != null) ? ({Utils.FullName(type)}){name}_gchandle.Target : null;");
+                        CS.Writer.WriteLine($"if({name}_gchandle != null){{ {name}_gchandle.Free();}}");
+                        //CS.Writer.WriteLine($"var {name}_p = ({Utils.FullName(type)})Marshal.PtrToStructure({name}, typeof({Utils.FullName(type)}))");
+                        return $"{name}_p";
+                    }
+                    else
+                    {
+                        CS.Writer.WriteLine($"var {name}_p = ({Utils.FullName(type)})Marshal.PtrToStructure({name}, typeof({Utils.FullName(type)}))");
+                        return $"{name}_p";
+                    }
+                }
+                else
+                {
+                    return base.Unbox(name, previous);
+                }
+            }
+            else
+            {
+                return base.Unbox(name, previous);
+            }
+            
+        }
+
+        /// <summary>
+        /// 理论上自动生成的delegate的，返回值是从mono传入到il2cpp，il2cpp再传回到mono，所以这里只需要传递gchandle
+        /// </summary>
+        /// <param name="name"></param>
+        /// <returns></returns>
+        public override string Box(string name)
+        {
+            if (CS.Writer.WriterType == CodeWriter.CodeWriterType.MonoBind && context.IsGenerated && context.IsReturnType)
+            {
+                
+                CS.Writer.WriteLine($"var {name}_p = GCHandle.ToIntPtr(GCHandle.Alloc({name}))"); 
+                //CS.Writer.WriteLine($"var {name}_p = Marshal.StructureToPtr({name}))");
+                return $"{name}_p";
+            }
+            else
+            {
+                return base.Box(name);
+            }
+        }
+    }
+
+    public class AttributeResolver : BaseTypeResolver
+    {
+        public AttributeResolver(TypeReference type, MemberTypeContext context) : base(type, context)
+        {
+
+        }
+    }
 
     public class ClassResolver : BaseTypeResolver
     {
-        public ClassResolver(TypeReference type) : base(type)
+        public ClassResolver(TypeReference type, MemberTypeContext context) : base(type, context)
         {
         }
 
-        public override string Paramer(string name)
+        public override string ParamerSuffix()
         {
-            return $"{TypeName()} {name}_h";
+            return "_h";
         }
+        //public override string Paramer(string name)
+        //{
+        //    return $"{TypeName()} {name}_h";
+        //}
 
-        public override string TypeName()
+        public override string TypeName(bool checkBlittable = false)
         {
             return "IntPtr";
         }
@@ -210,7 +393,16 @@ namespace Generater
         public override string Box(string name)
         {
             if(TypeResolver.WrapperSide)
-                CS.Writer.WriteLine($"var {name}_h = {name}.__GetHandle()");
+            {
+                if (type.Resolve().IsInterface)
+                {
+                    CS.Writer.WriteLine($"var {name}_h = ({name} as WObject).__GetHandle()");
+                }
+                else
+                {
+                    CS.Writer.WriteLine($"var {name}_h = {name}.__GetHandle()");
+                }
+            }
             else
                 CS.Writer.WriteLine($"var {name}_h = ObjectStore.Store({name})");
             return $"{name}_h";
@@ -222,7 +414,15 @@ namespace Generater
         /// <returns> resObj </returns>
         public override string Unbox(string name, bool previous)
         {
-            var unboxCmd = $"var {name}Obj = ObjectStore.Get<{RealTypeName()}>({name}_h)";
+            var unboxCmd = "";
+            if (TypeResolver.WrapperSide && type.Resolve().IsInterface)
+            {
+                unboxCmd = $"var {name}Obj = ObjectStore.Get<WObject>({name}_h) as {RealTypeName()}";
+            }
+            else
+            {
+                unboxCmd = $"var {name}Obj = ObjectStore.Get<{RealTypeName()}>({name}_h)";
+            }
             if (previous)
                 CS.Writer.WritePreviousLine(unboxCmd);
             else
@@ -235,14 +435,14 @@ namespace Generater
     {
         BaseTypeResolver resolver;
         TypeReference genericType;
-        public ListResolver(TypeReference type) : base(type)
+        public ListResolver(TypeReference type, MemberTypeContext context) : base(type, context)
         {
             var genericInstace = type as GenericInstanceType;
             genericType = genericInstace.GenericArguments.First();
             resolver = TypeResolver.Resolve(genericType);
         }
 
-        public override string TypeName()
+        public override string TypeName(bool checkBlittable = false)
         {
             return $"List<{resolver.TypeName()}>";
         }
@@ -299,17 +499,24 @@ namespace Generater
             return _Member($"{uniq}_{name}");
         }
 
-        public DelegateResolver(TypeReference type, IMemberDefinition context) : base(type)
+        public DelegateResolver(TypeReference type, MemberTypeContext context) : base(type, context)
         {
-            if(context != null)
+            var method = context.memberDefinition as MethodDefinition;
+            if (method != null)
             {
-                var method = context as MethodDefinition;
-                contextMember = method;
-                isStaticMember = method.IsStatic;
-                declarType = method.DeclaringType;
-                paramCount = method.Parameters.Count;
-                returnValue = !method.ReturnType.IsVoid();
-                uniqueName = FullMemberName(method);
+                if(!method.IsCompilerControlled)
+                {
+                    contextMember = method;
+                    isStaticMember = method.IsStatic;
+                    declarType = method.DeclaringType;
+                    paramCount = method.Parameters.Count;
+                    returnValue = !method.ReturnType.IsVoid();
+                    uniqueName = FullMemberName(method);
+                }
+            }
+            else
+            {
+                isStaticMember = false;
             }
         }
 
@@ -330,12 +537,16 @@ namespace Generater
             return method.DeclaringType.Name.Replace("/", "_") + "_" + methodName.Replace(".", "_");
         }
 
-        public override string Paramer(string name)
+        public override string ParamerSuffix()
         {
-            return $"{TypeName()} {name}_p";
+            return "_p";
         }
+        //public override string Paramer(string name)
+        //{
+        //    return $"{TypeName()} {name}_p";
+        //}
 
-        public override string TypeName()
+        public override string TypeName(bool checkBlittable = false)
         {
             return "IntPtr";
         }
@@ -348,14 +559,14 @@ namespace Generater
             _logMessageReceived(unbox(arg0), unbox(arg1), unbox(arg2));
         }
          */
-        void WriteBoxedMember(string name)
+        bool WriteBoxedMember(string name)
         {
             if (contextMember == null)
-                return;
+                return false;
 
             var varName = uniqueName + name;
             if (BoxedMemberSet.Contains(varName))
-                return;
+                return true;
             BoxedMemberSet.Add(varName);
 
             string _member = _Member(name);// _logMessageReceived
@@ -368,7 +579,7 @@ namespace Generater
 
             var eventDeclear = Utils.GetDelegateWrapTypeName(type, isStaticMember ? null : declarType); //Action <int,int,int>
             var paramTpes = Utils.GetDelegateParams(type, isStaticMember ? null : declarType, out var returnType); // string , string , LogType ,returnType
-            var returnTypeName = returnType != null ? TypeResolver.Resolve(returnType).TypeName() : "void";
+            var returnTypeName = returnType != null ? TypeResolver.Resolve(returnType, null, MemberTypeSlot.ReturnType, MethodTypeSlot.GeneratedDelegate).TypeName(CS.Writer.WriterType == CodeWriter.CodeWriterType.MonoBind) : "void";
 
             //static event global::UnityEngine.Application.LogCallback _logMessageReceived;
             CS.Writer.WriteLine($"public {flag} {eventTypeName} {_member}");
@@ -403,7 +614,7 @@ namespace Generater
             for (int i = 0; i < paramTpes.Count; i++)
             {
                 var p = paramTpes[i];
-                var param = TypeResolver.Resolve(p).Unbox($"arg{i}");
+                var param = TypeResolver.Resolve(p, null, MemberTypeSlot.Parameter, MethodTypeSlot.GeneratedDelegate).Unbox($"arg{i}");
 
                 if (i == 0 && !isStaticMember)
                 {
@@ -425,7 +636,7 @@ namespace Generater
             CS.Writer.WriteLine(callCmd);
             if (returnType != null)
             {
-                var res = TypeResolver.Resolve(returnType).Box("res");
+                var res = TypeResolver.Resolve(returnType, null, MemberTypeSlot.ReturnType, MethodTypeSlot.GeneratedDelegate).Box("res");
                 CS.Writer.WriteLine($"return {res}");
             }
             CS.Writer.End();//try
@@ -439,6 +650,7 @@ namespace Generater
 
             CS.Writer.End();//method
 
+            return true;
         }
 
         /*
@@ -468,9 +680,15 @@ namespace Generater
             var eventDeclear = Utils.GetDelegateWrapTypeName(type, isStaticMember ? null : declarType); //Action <int,int,int>
 
             //static void OnlogMessageReceived(string arg0, string arg1, LogType arg2)
-            var eventFuncDeclear = $"static {returnTypeName} On{name}(";
+            //mono bind内非static的delegate需要返回当前的实例对象而不是static的对象
+            bool isMonoBindInstanceGetter = CS.Writer.WriterType == CodeWriter.CodeWriterType.MonoBind && !isStaticMember && contextMember.IsGetter;
+            var eventFuncDeclear = $"{(isMonoBindInstanceGetter ? "" : "static")} {returnTypeName} On{name}(";
             for (int i = 0; i < paramTpes.Count; i++)
             {
+                if(isMonoBindInstanceGetter && i == 0)
+                {
+                    continue;
+                }
                 var p = paramTpes[i];
                 if (!isStaticMember && i == 0)
                     eventFuncDeclear += "this ";
@@ -482,15 +700,15 @@ namespace Generater
             }
             eventFuncDeclear += ")";
 
-
-            CS.Writer.WriteLine($"static {eventDeclear} {_member}");
+            //mono bind内非static的delegate需要返回当前的实例对象而不是static的对象
+            CS.Writer.WriteLine($"{(isMonoBindInstanceGetter ? "" : "static")} {eventDeclear} {_member}");
 
             CS.Writer.Start(eventFuncDeclear);
 
             var callCmd = $"{_member}(";
             if (returnType != null)
             {
-                var localVar = TypeResolver.Resolve(returnType).Paramer("res");
+                var localVar = TypeResolver.Resolve(returnType, null, MemberTypeSlot.ReturnType, MethodTypeSlot.GeneratedDelegate).Paramer("res", CS.Writer.WriterType == CodeWriter.CodeWriterType.MonoBind);
                 if(localVar.StartsWith("ref "))
                     localVar = localVar.Replace("ref ", "");
                 callCmd = localVar + " = " + callCmd;
@@ -499,7 +717,7 @@ namespace Generater
             for (int i = 0; i < paramTpes.Count; i++)
             {
                 var p = paramTpes[i];
-                callCmd += TypeResolver.Resolve(p).Box($"arg{i}");
+                callCmd += TypeResolver.Resolve(p, null, MemberTypeSlot.Parameter, MethodTypeSlot.GeneratedDelegate).Box(isMonoBindInstanceGetter && i == 0 ? "this" : $"arg{i}");
 
                 if (i != paramTpes.Count - 1)
                     callCmd += ",";
@@ -510,7 +728,7 @@ namespace Generater
             CS.Writer.WriteLine("ScriptEngine.CheckException()");
             if (returnType != null)
             {
-                var res = TypeResolver.Resolve(returnType).Unbox("res");
+                var res = TypeResolver.Resolve(returnType, null, MemberTypeSlot.ReturnType, MethodTypeSlot.GeneratedDelegate).Unbox("res");
                 CS.Writer.WriteLine($"return {res}");
             }
 
@@ -521,15 +739,16 @@ namespace Generater
         public override string Box(string name)
         {
             var memberUniqueName = $"{uniqueName}_{name}";
+            bool writeBoxed = false;
             using (new LP(CS.Writer.GetLinePoint("//member")))
             {
-                WriteBoxedMember(memberUniqueName);
+                writeBoxed = WriteBoxedMember(memberUniqueName);
             }
             
             var _action = _Action(memberUniqueName);
             var _member = _Member(memberUniqueName);
 
-            CS.Writer.WriteLine($"var {memberUniqueName}_p = Marshal.GetFunctionPointerForDelegate({_action})");
+            CS.Writer.WriteLine($"var {memberUniqueName}_p = Marshal.GetFunctionPointerForDelegate({(writeBoxed ? _action : name)})");
             return $"{memberUniqueName}_p";
         }
 
@@ -538,9 +757,11 @@ namespace Generater
         {
             var memberUniqueName = $"{uniqueName}_{name}";
 
+            var isMonoBindInstanceGetter = CS.Writer.WriterType == CodeWriter.CodeWriterType.MonoBind && !isStaticMember && contextMember.IsGetter;
             if(!contextMember.IsRemoveOn)
             {
-                using (new LP(CS.Writer.GetLinePoint("//Method")))
+                var isMonoBindGetterSetter = CS.Writer.WriterType == CodeWriter.CodeWriterType.MonoBind && contextMember != null && (contextMember.IsSetter || contextMember.IsGetter);
+                using (new LP(CS.Writer.GetLinePoint(isMonoBindGetterSetter ? "//member" : "//Method")))
                 {
                     WriteUnboxedMember(memberUniqueName);
                 }
@@ -556,10 +777,10 @@ namespace Generater
                     CS.Writer.WritePreviousLine(unboxCmd);
                 else
                     CS.Writer.WriteLine(unboxCmd);
-            }
+            } 
 
             var resCmd = $"On{memberUniqueName}";
-            if (!isStaticMember)
+            if (!isStaticMember && !isMonoBindInstanceGetter)
                 resCmd = "thizObj." + resCmd;
 
             return resCmd;
@@ -568,38 +789,74 @@ namespace Generater
 
     public class StructResolver : BaseTypeResolver
     {
-        public StructResolver(TypeReference type) : base(type)
+
+        public StructResolver(TypeReference type, MemberTypeContext context) : base(type, context)
         {
         }
 
-        public override string Paramer(string name)
+        public override string Paramer(string name, bool checkBlittable = false)
         {
             if(type.IsByReference)
-                return base.Paramer(name);
+                return base.Paramer(name, checkBlittable);
             else 
-                return "ref " + base.Paramer(name);
+                return "ref " + base.Paramer(name, checkBlittable);
         }
 
-        public override string LocalVariable(string name)
+        public override string LocalVariable(string name, bool checkBlittable = false)
         {
-            return base.Paramer(name);
+            if(checkBlittable)
+            {
+                return $"IntPtr {name}{ParamerSuffix()}";
+            }
+            else
+            {
+                return base.Paramer(name);
+            }
+            
         }
 
 
         public override string Box(string name)
         {
             name = base.Box(name);
-            if (TypeResolver.WrapperSide && !name.StartsWith("ref "))
+            if (!context.IsGeneratedDelegate && TypeResolver.WrapperSide && !name.StartsWith("ref "))
+            {
                 name = "ref " + name;
+            }
 
             return name;
+        }
+
+        public override string Unbox(string name, bool previous = false)
+        {
+            if (CS.Writer.WriterType == CodeWriter.CodeWriterType.MonoBind && !context.IsGeneratedDelegate)
+            {
+                CS.Writer.WriteLine($"var {name}_p = ({Utils.FullName(type)})Marshal.PtrToStructure({name}, typeof({Utils.FullName(type)}))");
+                return $"{name}_p";
+            }
+            else
+            {
+                return base.Unbox(name, previous);
+            }
         }
     }
 
     public class StringResolver : BaseTypeResolver
     {
-        public StringResolver(TypeReference type) : base(type)
+        public StringResolver(TypeReference type, MemberTypeContext context) : base(type, context)
         {
+        }
+
+        public override string TypeName(bool checkBlittable = false)
+        {
+            if (checkBlittable && !Utils.IsBlittableType(type))
+            {
+                return "IntPtr";
+            }
+            else
+            {
+                return base.TypeName();
+            }
         }
 
         /*public override string TypeName()
@@ -609,26 +866,66 @@ namespace Generater
 
             return base.TypeName();
         }*/
+        public override string Unbox(string name, bool previous = false)
+        {
+            //mono侧的生成的delegate的参数不用marshal
+            if(CS.Writer.WriterType == CodeWriter.CodeWriterType.MonoBind && !context.IsParamerterType)
+            {
+                CS.Writer.WriteLine($"var {name}_p = Marshal.PtrToStringAnsi({name})");
+                return $"{name}_p";
+            }else
+            {
+                return base.Unbox(name, previous);
+            }
+            
+        }
+
+        public override string Box(string name)
+        {
+            //mono侧的生成的delegate的参数不用marshal
+            if (CS.Writer.WriterType == CodeWriter.CodeWriterType.MonoBind && context.IsReturnType)
+            {
+                CS.Writer.WriteLine($"var {name}_p = Marshal.StringToHGlobalAnsi({name})");
+                return $"{name}_p";
+            }
+            else
+            {
+                return base.Box(name);
+            }
+        }
     }
 
     public class SystemResolver : BaseTypeResolver
     {
-        public SystemResolver(TypeReference type) : base(type)
+        public SystemResolver(TypeReference type, MemberTypeContext context) : base(type, context)
         {
         }
 
-       /* public override string TypeName()
-        {
-            if (type.Name.Equals("Object"))
-                return "object";
+        /* public override string TypeName()
+         {
+             if (type.Name.Equals("Object"))
+                 return "object";
 
-            return base.TypeName();
-        }*/
+             return base.TypeName();
+         }*/
+        public override string Unbox(string name, bool previous = false)
+        {
+            if(!Utils.IsBlittableType(type) //(type.FullName == "System.Type" || type.FullName == "System.Collections.IEnumerator" || type.FullName == "System.IO.Stream") 
+                && CS.Writer.WriterType == CodeWriter.CodeWriterType.MonoBind)
+            {
+                CS.Writer.WriteLine($"var {name}_p = ({Utils.FullName(type)})Marshal.PtrToStructure({name}, typeof({Utils.FullName(type)}))");
+                return $"{name}_p";
+            }
+            else
+            {
+                return base.Unbox(name, previous);
+            }
+        }
     }
 
     public class GenericResolver : BaseTypeResolver
     {
-        public GenericResolver(TypeReference type) : base(type)
+        public GenericResolver(TypeReference type, MemberTypeContext context) : base(type, context)
         {
         }
 

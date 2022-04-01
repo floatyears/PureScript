@@ -21,7 +21,7 @@ namespace Generater
             if (isNotImplement)//maybe generate a empty method?
                 return;
 
-            if (!genMethod.IsPublic && !genMethod.DeclaringType.IsInterface)
+            if (!Utils.IsVisibleToOthers(genMethod) && !genMethod.DeclaringType.IsInterface)
                 return;
             if (genMethod.IsConstructor && genMethod.DeclaringType.IsAbstract)
                 return;
@@ -45,7 +45,7 @@ namespace Generater
             writer = CS.Writer;
             base.Gen();
 
-            if (!genMethod.IsPublic && !genMethod.DeclaringType.IsInterface)
+            if (!Utils.IsVisibleToOthers(genMethod) && !genMethod.DeclaringType.IsInterface)
                 return;
             if (genMethod.IsConstructor && genMethod.DeclaringType.IsAbstract)
                 return;
@@ -85,7 +85,7 @@ namespace Generater
             }
             else
             {
-                var res = MethodResolver.Resolve(genMethod).Call("res");
+                var res = MethodResolver.Resolve(genMethod).Call("ret");
                 writer.WriteLine("ScriptEngine.CheckException()");
                 writer.WriteLine($"return {res}");
             }
@@ -107,6 +107,7 @@ namespace Generater
                 return;
             }
 
+            
             writer.Start("set");
             if (isNotImplement)
             {
@@ -160,6 +161,10 @@ namespace Generater
                 writer.WriteLine(declear);
                 return;
             }
+            //if(genMethod.CustomAttributes.Any(x=>x.AttributeType.Name == "RequiredByNativeCodeAttribute"))
+            //{
+            //    writer.WriteLine("[UnityEngine.Scripting.RequiredByNativeCode]", false);
+            //}
 
             writer.Start(declear);
 
@@ -207,8 +212,13 @@ namespace Generater
         {
             string declear = Utils.GetMemberDelcear(genMethod);
 
-            if (genMethod.IsConstructor && genMethod.DeclaringType.IsValueType)
-                declear += ":this()";
+            if (genMethod.IsConstructor)
+            {
+                if(genMethod.DeclaringType.IsValueType)
+                {
+                    declear += ":this()";
+                }
+            }
 
             return declear;
         }

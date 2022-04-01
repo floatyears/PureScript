@@ -111,6 +111,10 @@ public class RetainFilter :DepthFirstAstVisitor<bool>
         var retain = !base.VisitConstructorDeclaration(constructorDeclaration);
         if (retain)
         {
+            if(!constructorDeclaration.HasModifier(Modifiers.Public) && constructorDeclaration.Parameters.Count == 0)
+            {
+                return false;
+            }
             var res = constructorDeclaration.Resolve() as MemberResolveResult;
             RetainDic[res.Member.MetadataToken.GetHashCode()] = constructorDeclaration;
             RequiredNamespaceCollector.CollectNamespaces(res.Member, module, NamespaceRef);

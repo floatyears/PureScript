@@ -40,6 +40,7 @@ namespace Generater
             isEvent = true;
 
         }
+
         public DelegateGenerater(PropertyDefinition prop)
         {
             genName = prop.Name;
@@ -61,7 +62,7 @@ namespace Generater
             }
             isEvent = false;
         }
-        
+
 
         /*
         public static event global::UnityEngine.Application.LogCallback logMessageReceived

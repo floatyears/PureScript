@@ -47,7 +47,28 @@ namespace Generater
 
         public virtual string ReturnType()
         {
-            return TypeResolver.Resolve(method.ReturnType).TypeName();
+            if(CS.Writer.WriterType == CodeWriter.CodeWriterType.UnityBind)
+            {
+                return TypeResolver.Resolve(method.ReturnType).TypeName();
+            }
+            else
+            {
+                if(Utils.IsBlittableType(method.ReturnType))
+                {
+                    return TypeResolver.Resolve(method.ReturnType).TypeName();
+                }
+                else
+                {
+                    if (method.ReturnType.IsVoid())
+                    {
+                        return "void";
+                    }
+                    else
+                    {
+                        return "IntPtr";// TypeResolver.Resolve(method.ReturnType).TypeName();
+                    }
+                }
+            }
         }
 
         /// <summary>
@@ -76,10 +97,12 @@ namespace Generater
                 return "";
             }
 
-            var reName = TypeResolver.Resolve(method.ReturnType).LocalVariable(name);
+            var retTypeResolver = TypeResolver.Resolve(method.ReturnType, method, MemberTypeSlot.ReturnType, method.IsCompilerControlled ? MethodTypeSlot.GeneratedDelegate : MethodTypeSlot.GeneratedMethod);
+            var retName = retTypeResolver.LocalVariable(name, true);
 
-            CS.Writer.WriteLine($"{reName} = {Utils.BindMethodName(method)}");
-            return TypeResolver.Resolve(method.ReturnType,method).Unbox(name);
+            CS.Writer.WriteLine($"{retName} = {Utils.BindMethodName(method)}");
+            retName = retTypeResolver.Unbox(name);
+            return retName;
         }
 
         /// <summary>
@@ -137,7 +160,7 @@ namespace Generater
             var lastP = method.Parameters.LastOrDefault();
             foreach (var p in method.Parameters)
             {
-                var value = TypeResolver.Resolve(p.ParameterType,method).Unbox(p.Name, true);
+                var value = TypeResolver.Resolve(p.ParameterType, method, MemberTypeSlot.Parameter).Unbox(p.Name, true);
                 if (p.IsIn)
                     value = value.Replace("ref ", "in ");
 

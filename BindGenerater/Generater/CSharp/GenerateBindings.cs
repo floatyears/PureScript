@@ -112,7 +112,7 @@ namespace Generater
             nsSet.Add("System");
 
 
-            using (new CS(new CodeWriter(Writer)))
+            using (new CS(new CodeWriter(Writer, CodeWriter.CodeWriterType.UnityBind)))
             {
                 foreach (var ns in nsSet)
                     CS.Writer.WriteLine($"using {ns}");
@@ -207,10 +207,10 @@ namespace Generater
             wrapGenerater.AddMethod(method);
         }
 
-        public static void AddDelegateDefine(string defineStr)
+        public static void AddDelegateDefine(string defineStr, string wrapDefineStr)
         {
             implGenerater.AddDelegateDefine(defineStr);
-            wrapGenerater.AddDelegateDefine(defineStr);
+            wrapGenerater.AddDelegateDefine(wrapDefineStr);
         }
 
         public static void Gen()

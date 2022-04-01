@@ -54,6 +54,12 @@ namespace Generater
 
     public class CodeWriter
     {
+        public enum CodeWriterType
+        { 
+            MonoBind,
+            UnityBind,
+        }
+
         public string _start = "{";
         public string _end = "}";
         public string _eol = ";";
@@ -66,9 +72,12 @@ namespace Generater
 
         private Stack<LinePointer> pointers = new Stack<LinePointer>();
         private Dictionary<string, LinePointer> pointerDic = new Dictionary<string, LinePointer>();
+        
+        public CodeWriterType WriterType { get; private set; }  
 
-        public CodeWriter(TextWriter _writer)
+        public CodeWriter(TextWriter _writer, CodeWriterType writerType = CodeWriterType.MonoBind)
         {
+            WriterType = writerType;
             writer = _writer;
             UsePointer(CreateLinePoint("// auto gengerated !"));
         }

@@ -235,7 +235,9 @@ public class MemberDeclearVisitor: CustomOutputVisitor
     public override void VisitConstructorInitializer(ConstructorInitializer constructorInitializer)
     {
         if (!hasBodyBlock)
+        {
             return;
+        }
         base.VisitConstructorInitializer(constructorInitializer);
     }
 

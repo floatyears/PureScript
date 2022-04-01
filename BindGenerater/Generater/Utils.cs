@@ -79,7 +79,7 @@ namespace Generater
                 }
                 else
                 {
-                    param += TypeResolver.Resolve(p.ParameterType, method).Box(p.Name) + (p == lastP ? "" : ", ");
+                    param += TypeResolver.Resolve(p.ParameterType, method, MemberTypeSlot.Parameter).Box(p.Name) + (p == lastP ? "" : ", ");
                 }
 
             }
@@ -91,6 +91,11 @@ namespace Generater
         public static string ReName(string name)
         {
             return name.Replace("::", "_").Replace(".", "_").Replace("/","_");
+        }
+
+        public static string FullName(TypeReference type)
+        {
+            return type.FullName.Replace("/", ".");
         }
 
         static Dictionary<string, List<string>> NameDic = new Dictionary<string, List<string>>();
@@ -131,6 +136,13 @@ namespace Generater
 
         public static bool Filter(PropertyDefinition property)
         {
+            bool hasPublicOrNullGetterSetter = (property.GetMethod == null && property.SetMethod == null)
+                || ((property.GetMethod != null && property.GetMethod.IsPublic) || (property.SetMethod != null && property.SetMethod.IsPublic));
+            if(!hasPublicOrNullGetterSetter)
+            {
+                return false;
+            }
+
             if(property.HasThis && property.Name == "Item")
             {//TODO:indexer
                 return false; 
@@ -160,6 +172,11 @@ namespace Generater
 
             foreach (var p in method.Parameters)
             {
+                //TODO: params关键字修饰的参数不支持
+                if (p.CustomAttributes.Any(x => x.AttributeType.Name == "ParamArrayAttribute"))
+                {
+                    return false;
+                }
                 if (p.ParameterType.IsByReference && !p.ParameterType.GetElementType().IsValueType)
                     return false;
                 if (p.ParameterType.IsPointer && method.IsConstructor && method.DeclaringType.IsStruct())
@@ -233,6 +250,7 @@ namespace Generater
             {
                 if (type.FullName.Contains(t))
                 {
+                    Log("ignorType: " + type.FullName);
                     DropTypes.Add(type);
                     return false;
                 }
@@ -246,6 +264,7 @@ namespace Generater
                 {
                     if(t != null && !Utils.Filter(t))
                     {
+                        Log("ignorType: " + type.FullName);
                         DropTypes.Add(type);
                         return false;
                     }
@@ -266,31 +285,82 @@ namespace Generater
                 return false;
             }
 
+            var td = type.Resolve();
             if (type.IsArray)
             {
-                DropTypes.Add(type);
-                return false;
+                if(IsDelegate(type.GetElementType()) || !Utils.Filter(type.GetElementType()))
+                {
+                    Log("ignorType: " + type.FullName);
+                    DropTypes.Add(type);
+                    return false;
+                }
             }
 
-            if (IsAttribute(type))
+            //if (IsAttribute(type))
+            //{
+            //    var atype = type.Resolve();
+            //    foreach (var f in atype.Fields)
+            //    {
+            //        var ft = f.FieldType.Resolve();
+            //        if (!(ft.IsPrimitive || ft.FullName == "System.String" || ft.IsEnum))
+            //        {
+            //            Log("ignorType: " + type.FullName);
+            //            DropTypes.Add(type);
+            //            return false;
+            //        }
+            //    }
+            //}
+
+            if (td != null && (IsObsolete(td)))// || td.IsInterface))
             {
+                Log("ignorType: " + type.FullName);
                 DropTypes.Add(type);
                 return false;
             }
 
-            
+            //if(td != null && td.IsInterface)
+            //{
+            //    foreach(var f in td.Fields)
+            //    {
+            //        if(f.FieldType.Resolve() != td && !Utils.Filter(f.FieldType))
+            //        {
+            //            DropTypes.Add(type);
+            //            return false;
+            //        }
+            //    }
 
-            var td = type.Resolve();
-            if (td != null && (IsObsolete(td) || td.IsInterface))
-            {
-                DropTypes.Add(type);
-                return false;
-            }
+            //    foreach (var f in td.Properties)
+            //    {
+            //        if (f.PropertyType.Resolve() != td && !Utils.Filter(f.PropertyType))
+            //        {
+            //            DropTypes.Add(type);
+            //            return false;
+            //        }
+            //    }
+
+            //    foreach (var f in td.Methods)
+            //    {
+            //        foreach(var p in f.Parameters)
+            //        {
+            //            if(p.ParameterType.Resolve() != td && !Utils.Filter(p.ParameterType))
+            //            {
+            //                DropTypes.Add(type);
+            //                return false;
+            //            }
+            //        }
+            //        if (f.ReturnType.Resolve() != td && !Utils.Filter(f.ReturnType))
+            //        {
+            //            DropTypes.Add(type);
+            //            return false;
+            //        }
+            //    }
+            //}
 
             if (td != null && td.IsStruct())
             {
                 if(!IsFullValueType(td))
                 {
+                    Log("ignorType: " + type.FullName);
                     DropTypes.Add(type);
                     return false;
                 }
@@ -298,6 +368,7 @@ namespace Generater
                 {
                     if (!f.IsStatic && !Utils.Filter(f.FieldType))
                     {
+                        Log("ignorType: " + type.FullName);
                         DropTypes.Add(type);
                         return false;
                     }
@@ -310,6 +381,7 @@ namespace Generater
             {
                 if (!Filter(ct))
                 {
+                    Log($"ignorType: {type.FullName} base {ct.FullName}");
                     DropTypes.Add(type);
                     return false;
                 }
@@ -569,14 +641,18 @@ namespace Generater
             for (int i = 0; i < paramTpes.Count; i++)
             {
                 var p = paramTpes[i];
-                paramDeclear += $"{TypeResolver.Resolve(p).TypeName()} arg{i} ";
+                paramDeclear += $"{TypeResolver.Resolve(p).TypeName()} arg{i} "; //TODO: TypeResolver.Resolve(p).Paramer($"arg{i}");
                 if (i != paramTpes.Count - 1)
                     paramDeclear += ",";
             }
             paramDeclear += ")";
 
-            var returnName = returnType == null ? "void" : TypeResolver.Resolve(returnType).TypeName();
-            var sign = paramDeclear + returnName;
+            var retTypeResolver = returnType != null ? TypeResolver.Resolve(returnType, null, MemberTypeSlot.ReturnType, MethodTypeSlot.GeneratedMethod) : null;
+            //il2cpp内的定义仍然保持原样，因为在生成cpp文件时，非blittable都以指针形式存在
+            var returnName = returnType == null ? "void" : retTypeResolver.TypeName();
+            //mono内的delegate，如果返回值是非blittable类型，必须要定义为IntPtr，避免Marshal将返回值释放掉，返回空指针。
+            var returnNameWrap = returnType == null ? "void" : retTypeResolver.TypeName(true); 
+            var sign = type.FullName + paramDeclear + returnName;
             var delegateName = "";
             if(!delegateSignDic.TryGetValue(sign,out delegateName))
             {
@@ -585,8 +661,9 @@ namespace Generater
             }
             
             var define = $"public delegate {returnName} {delegateName} {paramDeclear}";
+            var wrapDefine = $"public delegate {returnNameWrap} {delegateName} {paramDeclear}";
 
-            GenerateBindings.AddDelegateDefine(define);
+            GenerateBindings.AddDelegateDefine(define, wrapDefine);
 
             return delegateName;
         }
@@ -642,6 +719,22 @@ namespace Generater
             else if (Binder.curModule.TryGetTypeReference(tn, out var tref))
                 return IsFullValueType(tref);
 
+            return false;
+        }
+
+        public static bool IsBlittableType(TypeReference _type)
+        {
+            if (_type.IsPointer)
+                _type = _type.GetElementType();
+            var type = _type.Resolve();
+
+            if (type == null)
+                return false;
+
+            if (!_type.IsArray && (_type.IsPrimitive || type.IsEnum))
+            {
+                return true;
+            }
             return false;
         }
 
@@ -768,7 +861,10 @@ namespace Generater
             return false;
         }
 
-
+        public static bool IsVisibleToOthers(MethodDefinition method)
+        {
+            return method.IsPublic;// || (method.IsFamilyOrAssembly && method.CustomAttributes.Any(x => x.AttributeType.Name == "VisibleToOtherModulesAttribute"));
+        }
         
 
         public static int RunCMD(string cmd, string[] args, string workdir = null)
@@ -822,8 +918,9 @@ namespace Generater
                 if (!refName.EndsWith(".dll"))
                     refName += ".dll";
 
-                if (adapterSet.Contains(refName))
-                    continue;
+                //TODO:为啥Adapter的引用不计算在内，实际上entry.dll会依赖于adapter.dll
+                //if (adapterSet.Contains(refName))
+                //    continue;
 
                 CollectMonoAssembly(refName, dir, adapterSet, outSet);
             }
@@ -847,7 +944,14 @@ namespace Generater
             var output = new MemberDeclearVisitor(false, writer, Binder.DecompilerSetting.CSharpFormattingOptions);
             if (stripInterface != null)
                 output.stripInterfaceSet = stripInterface;
-            TokenMap[token].AcceptVisitor(output);
+            if(TokenMap.TryGetValue(token, out var map))
+            {
+                map.AcceptVisitor(output);
+            }else
+            {
+                Log("Key Not Found: " + member.ToString());
+            }
+            //TokenMap[token].AcceptVisitor(output);
             return writer.ToString();
         }
 
