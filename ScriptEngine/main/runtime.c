@@ -1,6 +1,6 @@
 #include "runtime.h"
 
-#if !RUNTIME_IOS
+#ifdef WIN32
 #include <windows.h>
 #include <direct.h>
 #endif
@@ -59,6 +59,8 @@ const char * runtime_bundle_path(void)
  
 #if RUNTIME_IOS
 	mono_runtime_bundle_path = ios_bundle_path();
+#elif __ANDROID__
+	printf("doc_path=%s\n", mono_runtime_bundle_path);
 #else
 	if ((mono_runtime_bundle_path = _getcwd(NULL, 0)) == NULL)
 		perror("getcwd error");
@@ -239,6 +241,8 @@ void register_assembly_map();
 #if RUNTIME_IOS
 #define __STRDUP strdup
 void mono_ios_runtime_init(void);
+#elif __ANDROID__
+#define __STRDUP strdup
 #else
 #define __STRDUP _strdup
 #endif
