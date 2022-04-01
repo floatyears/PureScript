@@ -12,6 +12,11 @@
 #include "mono/metadata/assembly.h"
 #include "mono/metadata/mono-debug.h"
 #include "mono/metadata/exception.h"
+#include "mono/metadata/threads.h"
+#include "mono/metadata/appdomain.h"
+#include "mono/metadata/sgen-bridge.h"
+
+#include "il2cpp_support.h"
 
 #include <sys/stat.h>
 #include <stdio.h>
@@ -19,11 +24,9 @@
 #include <assert.h>
 #include <stdarg.h>
 
-typedef char bool;
+//typedef char bool;
 #define false 0
 #define true 1
-
-
 
 MonoDomain *g_domain;
 
@@ -48,6 +51,33 @@ strdup_printf(const char *msg, ...)
 	va_end(args);
 
 	return formatted;
+}
+
+static char formatted[1024];
+
+void platform_log(const char* _format, ...)
+{
+#if _MSC_VER
+	va_list args;
+	va_start(args, _format);
+	vsnprintf(formatted, 1024, _format, args);
+	va_end(args);
+	printf(formatted);
+#elif __ANDROID__
+	va_list args;
+	va_start(args, _format);
+	vsnprintf(formatted, 1024, _format, args);
+	va_end(args);
+	__android_log_print(4, //android_LogPriority::ANDROID_LOG_INFO to_android_priority(log_level),
+		/* TODO: provide a proper app name */
+		"mono", formatted);
+#else
+	va_list args;
+	va_start(args, _format);
+	vsnprintf(formatted, 1024, _format, args);
+	va_end(args);
+	printf(formatted);
+#endif
 }
 
 extern const char *ios_bundle_path(void);
@@ -164,9 +194,9 @@ assembly_preload_hook(MonoAssemblyName *aname, char **assemblies_path, void* use
 void
 log_callback_default(const char *log_domain, const char *log_level, const char *message, mono_bool fatal, void *user_data)
 {
-	printf("(%s %s) %s", log_domain, log_level, message);
+	platform_log("(%s %s) %s", log_domain, log_level, message);
 	if (fatal) {
-		printf("Exit code: %d.", 1);
+		platform_log("Exit code: %d.", 1);
 		exit(1);
 	}
 }
@@ -189,7 +219,7 @@ mono_exception_property(MonoObject *obj, const char *name, char is_virtual)
 		return (MonoObject *)mono_runtime_invoke(get, obj, NULL, &exc);
 	}
 	else {
-		printf("Could not find the property System.Exception.%s", name);
+		platform_log("Could not find the property System.Exception.%s", name);
 	}
 
 	return NULL;
@@ -212,8 +242,8 @@ unhandled_exception_handler(MonoObject *exc, void *user_data)
 	char *trace = fetch_exception_property_string(exc, "get_StackTrace", true);
 	char *message = fetch_exception_property_string(exc, "get_Message", true);
 
-	printf("Unhandled managed exception:\n");
-	printf("%s (%s)\n%s\n", message, type_name, trace ? trace : "");
+	platform_log("Unhandled managed exception:\n");
+	platform_log("%s (%s)\n%s\n", message, type_name, trace ? trace : "");
 
 	if (trace != NULL)
 		mono_free(trace);
@@ -221,8 +251,18 @@ unhandled_exception_handler(MonoObject *exc, void *user_data)
 		mono_free(message);
 
 	//os_log_info (OS_LOG_DEFAULT, "%@", msg);
-	printf("Exit code: %d.", 1);
+	platform_log("Exit code: %d.", 1);
 	exit(1);
+}
+
+void il2cpp_thread_attach_callback(Il2CppThread* thread)
+{
+	mono_thread_attach(g_domain);
+}
+
+void il2cpp_thread_dettach_callback(Il2CppThread* thread)
+{
+	mono_thread_detach(g_domain);
 }
 
 /*
@@ -270,13 +310,12 @@ mono_setup(char* reloadDir, const char* file) {
 	
 	mono_install_assembly_preload_hook(assembly_preload_hook, NULL);
 
-	mono_install_unhandled_exception_hook(unhandled_exception_handler, NULL);
-	mono_trace_set_log_handler(log_callback_default, NULL);
+	//mono_install_unhandled_exception_hook(unhandled_exception_handler, NULL);
+	//mono_trace_set_log_handler(log_callback_default, NULL); //
 	mono_set_signal_chaining(true);
 	mono_set_crash_chaining(true);
 
 	mono_debug();
-
 	
 #if RUNTIME_IOS
 	const char* rootdir = runtime_bundle_path();
@@ -311,6 +350,13 @@ mono_setup(char* reloadDir, const char* file) {
 	 * can call us back.
 	 */
 	mono_register_icall();
+
+	size_t thread_cnt = 0;
+	Il2CppThread** threads = il2cpp_get_all_threads(&thread_cnt);
+	platform_log("current il2cpp attached thread count: %d", thread_cnt);
+	il2cpp_set_thread_callback(il2cpp_thread_attach_callback, il2cpp_thread_dettach_callback);
+	//gc thread attach to il2cpp
+	//mono_gc_wait_for_bridge_processing
 
 	char *managed_argv[2];
 	managed_argv[0] = file;
