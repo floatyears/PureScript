@@ -68,22 +68,23 @@ void il2cpp_thread_detach(Il2CppThread *thread)
 # Modify Thread Signal 
 $gcPrivPath = Join-Path $sourceCodeDir external/bdwgc/include/private/gc_priv.h
 $content = Get-Content -Path $gcPrivPath
-Write-Host $content
-$destContent = '#   define SIG_THR_RESTART SIGRTMIN + 5 //SIG_THR_RESTART SIGXCPU'
-$match = $content | Select-String -Pattern $destContent
-if($match.Matches.Count -eq 0)
-{
-    $content = $content.Replace('#   define SIG_THR_RESTART SIGXCPU', $destContent)
-    Write-Host 'Set SIG_THR_RESTART from SIGXCPU to SIGRTMIN + 5'
-}
-
-$pthreadStopWorldPath = Join-Path $sourceCodeDir external/bdwgc/pthread_stop_world.c
-$content = Get-Content -Path $pthreadStopWorldPath
+# Write-Host $content
 $destContent = '#     define SIG_SUSPEND SIGRTMIN + 6 //SIG_SUSPEND SIGPWR'
 $match = $content | Select-String -Pattern $destContent
 if($match.Matches.Count -eq 0)
 {
     $content = $content.Replace('#     define SIG_SUSPEND SIGPWR', $destContent)
     Write-Host 'Set SIG_SUSPEND from SIGPWR to SIGRTMIN + 6'
+    Set-Content -Path $gcPrivPath $content
 }
 
+$pthreadStopWorldPath = Join-Path $sourceCodeDir external/bdwgc/pthread_stop_world.c
+$content = Get-Content -Path $pthreadStopWorldPath
+$destContent = '#   define SIG_THR_RESTART SIGRTMIN + 5 //SIG_THR_RESTART SIGXCPU'
+$match = $content | Select-String -Pattern $destContent
+if($match.Matches.Count -eq 0)
+{
+    $content = $content.Replace('#   define SIG_THR_RESTART SIGXCPU', $destContent)
+    Write-Host 'Set SIG_THR_RESTART from SIGXCPU to SIGRTMIN + 5'
+    Set-Content -Path $pthreadStopWorldPath $content
+}
