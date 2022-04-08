@@ -193,7 +193,7 @@ MonoString* get_mono_string(Il2CppString* str)
 	int32_t len = il2cpp_string_length(str);
 	Il2CppChar* chars = il2cpp_string_chars(str);
 
-	return mono_string_new_utf16(g_domain, (mono_unichar2*)chars,len);
+	return mono_string_new_utf16(g_domain, (mono_unichar2*)chars, len);
 }
 Il2CppString* get_il2cpp_string(MonoString* str)
 {
@@ -224,19 +224,29 @@ MonoArray* get_mono_array(Il2CppArray * array)
             monoklass = mono_object_get_class(monoObj);
     }
     
-	int32_t len = il2cpp_array_length(array);
+	uint32_t len = il2cpp_array_length(array);
 	if (len == 0)
 		return NULL;
 	monoArray = mono_array_new(g_domain, monoklass, len);
 	//if (len == 0)
 	//	return monoArray;
-
-	for (int i = 0; i < len; i++)
+	if (is_primitive_array(monoklass))
 	{
-		Il2CppObject* il2cppObj = il2cpp_array_get(array, Il2CppObject*, i);
-		MonoObject* monoObj = get_mono_object(il2cppObj, monoklass);
-		mono_array_setref(monoArray, i,monoObj);
+		char* _p = il2cpp_array_addr_with_size(array, il2cpp_class_array_element_size(eklass), 0);
+		//void** __p = (void**)mono_array_addr((dest), void*, (destidx));
+		char* _s = mono_array_addr_with_size((monoArray), mono_class_array_element_size(monoklass), 0);
+		mono_gc_wbarrier_value_copy(_s, _p, len, monoklass);
 	}
+	else
+	{
+		for (int i = 0; i < len; i++)
+		{
+			Il2CppObject* il2cppObj = il2cpp_array_get(array, Il2CppObject*, i);
+			MonoObject* monoObj = get_mono_object(il2cppObj, monoklass);
+			mono_array_setref(monoArray, i, monoObj);
+		}
+	}
+	
 	return monoArray;
 }
 
@@ -277,6 +287,22 @@ void copy_array_i2_mono(Il2CppArray* i2_array, MonoArray* mono_array)
 		MonoObject* monoObj = get_mono_object(il2cppObj, eklass);
 		mono_array_setref(mono_array, i, monoObj);
 	}
+}
+
+bool is_primitive_array(MonoClass* klass)
+{
+	const char* ns = mono_class_get_namespace(klass);
+	const char* klsname = mono_class_get_name(klass);
+	//platform_log("kclass name: %s-%s", ns, klsname);
+	if (strcmp(ns, "System"))
+	{
+		return false;
+	}
+	if (!strcmp(klsname, "Byte")) //primitive array type
+	{
+		return true;
+	}
+	return false;
 }
 
 Il2CppClass* get_il2cpp_class(MonoClass* mclass)
@@ -434,7 +460,24 @@ MonoException* get_mono_exception(Il2CppException* il2cpp)
 	Il2CppString* trace = (Il2CppString*)il2cpp_exception_property((Il2CppObject*)il2cpp, "get_StackTrace", 1);
 	Il2CppString* message = (Il2CppString*)il2cpp_exception_property((Il2CppObject*)il2cpp, "get_Message", 1);
 
-	return mono_exception_from_name_two_strings(mono_get_corlib(), "System", "Exception", get_mono_string(message), get_mono_string(trace));
+	MonoString* _message = get_mono_string(message);
+	MonoString* _stack = get_mono_string(trace);
+	platform_log("%s\n%s", _message != NULL ? mono_string_to_utf8(_message) : "", _stack != NULL ? mono_string_to_utf8(_stack) : "");
+	//mono will crash when _message or _stack is NULL 
+	static MonoString* emptyMsg = mono_string_new_len(g_domain, "empty message", 14);
+	//static MonoString* emptyStack = mono_string_new_len(g_domain, "empty stack", 12);
+
+	//mono_exception_from_name_two_strings receive two string as parameters to constructor
+	return mono_exception_from_name_two_strings(mono_get_corlib(), "System", "Exception", _message == NULL ? emptyMsg : _message, NULL);
+
+	//MonoString* msg = get_mono_string(trace);
+	//Il2CppChar* _message = il2cpp_string_chars(message);
+	//Il2CppChar* _trace = il2cpp_string_chars(trace);
+	//mono_free(_message);
+	//mono_free(_trace);
+	//MonoException* exc = mono_exception_from_name_two_strings(mono_get_corlib(), "System", "Exception", msg, NULL);
+	//mono_free(msg);
+	//return exc;
 }
 Il2CppException* get_il2cpp_exception(MonoException* mono)
 {
@@ -471,16 +514,17 @@ void check_mono_exception(MonoException* mono)
 	}
 }
 
+static const char* emptyMsg = "empty message";
 void raise_mono_exception_runtime(const char* msg)
 {
-	MonoException* exc = mono_exception_from_name_msg(mono_get_corlib(), "System", "Exception", msg);
+	MonoException* exc = mono_exception_from_name_msg(mono_get_corlib(), "System", "Exception", msg == NULL ? emptyMsg : msg);
 	mono_raise_exception(exc);
 	//mono_reraise_exception(exc);
 }
 
 void raise_il2cpp_exception_runtime(const char* msg)
 {
-	Il2CppException* exc = il2cpp_exception_from_name_msg(il2cpp_get_corlib(), "System", "Exception", msg);
+	Il2CppException* exc = il2cpp_exception_from_name_msg(il2cpp_get_corlib(), "System", "Exception", msg == NULL ? emptyMsg : msg);
 	il2cpp_raise_exception(exc);
 }
 

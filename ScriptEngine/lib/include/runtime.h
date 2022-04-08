@@ -12,6 +12,10 @@
 #include <mono/jit/jit.h>
 //#include <mono/metadata/object.h>
 
+#if __ANDROID__
+#include "runtime_android.h"
+#endif
+
 #if TARGET_OS_IPHONE || TARGET_IPHONE_SIMULATOR || TARGET_OS_TV || TARGET_TVOS_SIMULATOR
 #define RUNTIME_IOS 1
 #endif
@@ -20,6 +24,15 @@
 extern "C"
 {
 #endif // __cplusplus
+
+#if __ANDROID__
+#define platform_log(FORMAT, ...) _log(FORMAT, ##__VA_ARGS__)
+#else
+#define platform_log(FORMAT, ...) _platform_log(FORMAT, ##__VA_ARGS__)
+#endif
+
+	void _platform_log(const char* _format, ...);
+
 	extern MonoDomain *g_domain;
 
 	typedef void(*print_log)(char* data);

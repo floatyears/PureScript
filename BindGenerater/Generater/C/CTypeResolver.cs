@@ -304,14 +304,16 @@ namespace Generater.C
     public class ArrayResolver : BaseTypeResolver
     {
         bool isValueElement;
+        bool isPrimitiveElement;
         public ArrayResolver(TypeReference _type, bool _il2cppType) : base(_type, _il2cppType)
         {
             isValueElement = type.GetElementType().IsValueType;
+            isPrimitiveElement = type.GetElementType().IsPrimitive;
         }
 
         public override string Box(string name, bool previous = false)
         {
-            if (isValueElement)
+            if (isValueElement && !isPrimitiveElement)
             {
                 return name;
             }
@@ -330,7 +332,7 @@ namespace Generater.C
         }
         public override string Unbox(string name, bool previous = false)
         {
-            if (isValueElement)
+            if (isValueElement && !isPrimitiveElement)
             {
                 return name;
             }
@@ -345,7 +347,7 @@ namespace Generater.C
         }
         public override string TypeName()
         {
-            if (isValueElement)
+            if (isValueElement && !isPrimitiveElement)
                 return "void*";
 
             if (il2cppType)

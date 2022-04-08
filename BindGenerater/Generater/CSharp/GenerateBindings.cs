@@ -153,6 +153,10 @@ namespace Generater
                     CS.Writer.Start("try");
 
                     var reName = MethodResolver.Resolve(method).Implement("_value");
+                    if(method.ReturnType != null && method.ReturnType.IsArray)
+                    {
+                        CS.Writer.WriteLine($"arrayLen = {reName} != null ? {reName}.Length : -1;");
+                    }
                     if (!string.IsNullOrEmpty(reName))
                         CS.Writer.WriteLine($"return {reName}");
                     CS.Writer.End();//try

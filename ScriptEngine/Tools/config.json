@@ -1,6 +1,9 @@
 {
   "ScriptEngineDir": "..",
-  "AdapterSet": [ "AdapterTest.dll" ],
-  "InterpSet": ["TestEntry.dll","Code.dll"],
-  "Entry":["TestEntry.dll","Code.dll"]
+  "AdapterSet": [ "ThirdParty.dll" ],
+  "AOTSet" : [],
+  "InterpSet": ["Scripts.dll" ],
+  "Entry":["Scripts.dll"],
+  "AssembliesCheck": [
+                  {"Assembly" : "Scripts.dll" , "Source" : "E:/Projects/Project_LZ/client/Art/Assets/Source/Scripts", "Filter" : "*.cs"}]
 }

@@ -83,6 +83,11 @@ namespace Generater
                 }
 
             }
+            if(method.ReturnType != null && method.ReturnType.IsArray)
+            {
+                param += $"{(!method.IsStatic || method.HasParameters ? ", " : "")}ref{(declear ? " int" : "")} arrayLen";
+            }
+
             param += ")";
 
             return param;
@@ -288,7 +293,9 @@ namespace Generater
             var td = type.Resolve();
             if (type.IsArray)
             {
-                if(IsDelegate(type.GetElementType()) || !Utils.Filter(type.GetElementType()))
+                var arrayType = type as Mono.Cecil.ArrayType;
+                var eleType = arrayType.ElementType; 
+                if(IsDelegate(eleType) || eleType.IsArray || !Utils.Filter(eleType) || arrayType.Rank != 1)
                 {
                     Log("ignorType: " + type.FullName);
                     DropTypes.Add(type);

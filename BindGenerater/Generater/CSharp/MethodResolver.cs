@@ -100,6 +100,10 @@ namespace Generater
             var retTypeResolver = TypeResolver.Resolve(method.ReturnType, method, MemberTypeSlot.ReturnType, method.IsCompilerControlled ? MethodTypeSlot.GeneratedDelegate : MethodTypeSlot.GeneratedMethod);
             var retName = retTypeResolver.LocalVariable(name, true);
 
+            if(method.ReturnType != null && method.ReturnType.IsArray)
+            {
+                CS.Writer.WriteLine("int arrayLen = 0;");
+            }
             CS.Writer.WriteLine($"{retName} = {Utils.BindMethodName(method)}");
             retName = retTypeResolver.Unbox(name);
             return retName;

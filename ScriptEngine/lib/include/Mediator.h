@@ -39,6 +39,7 @@ extern "C"
 	MonoArray* get_mono_array(Il2CppArray * array);
 	Il2CppArray* get_il2cpp_array(MonoArray* array);
 	void copy_array_i2_mono(Il2CppArray* i2_array, MonoArray* mono_array);
+	bool is_primitive_array(MonoClass* klass);
 
 	MonoImage* mono_get_image(const char* assembly);
 	MonoClass* mono_get_class(MonoImage* image, const char* _namespace, const char* name);

@@ -1,5 +1,6 @@
 #include "runtime.h"
 
+
 #ifdef WIN32
 #include <windows.h>
 #include <direct.h>
@@ -24,11 +25,14 @@
 #include <assert.h>
 #include <stdarg.h>
 
+
+
 //typedef char bool;
 #define false 0
 #define true 1
 
 MonoDomain *g_domain;
+extern char native_library_dir[2048];
 
 char* mono_runtime_bundle_path;
 char* mono_runtime_reload_path;
@@ -53,9 +57,9 @@ strdup_printf(const char *msg, ...)
 	return formatted;
 }
 
-static char formatted[1024];
 
-void platform_log(const char* _format, ...)
+static char formatted[1024];
+void _platform_log(const char* _format, ...)
 {
 #if _MSC_VER
 	va_list args;
@@ -63,20 +67,20 @@ void platform_log(const char* _format, ...)
 	vsnprintf(formatted, 1024, _format, args);
 	va_end(args);
 	printf(formatted);
-#elif __ANDROID__
-	va_list args;
-	va_start(args, _format);
-	vsnprintf(formatted, 1024, _format, args);
-	va_end(args);
-	__android_log_print(4, //android_LogPriority::ANDROID_LOG_INFO to_android_priority(log_level),
-		/* TODO: provide a proper app name */
-		"mono", formatted);
-#else
-	va_list args;
-	va_start(args, _format);
-	vsnprintf(formatted, 1024, _format, args);
-	va_end(args);
-	printf(formatted);
+//#elif __ANDROID__
+//	va_list args;
+//	va_start(args, _format);
+//	vsnprintf(formatted, 1024, _format, args);
+//	va_end(args);
+//	__android_log_print(4, //android_LogPriority::ANDROID_LOG_INFO to_android_priority(log_level),
+//		/* TODO: provide a proper app name */
+//		"mono", formatted);
+//#else
+//	va_list args;
+//	va_start(args, _format);
+//	vsnprintf(formatted, 1024, _format, args);
+//	va_end(args);
+//	printf(formatted);
 #endif
 }
 
@@ -307,13 +311,25 @@ mono_setup(char* reloadDir, const char* file) {
 
 	//MonoAllocatorVTable mem_vtable = {custom_malloc};
 	//mono_set_allocator_vtable (&mem_vtable);
-	
 	mono_install_assembly_preload_hook(assembly_preload_hook, NULL);
 
-	//mono_install_unhandled_exception_hook(unhandled_exception_handler, NULL);
-	//mono_trace_set_log_handler(log_callback_default, NULL); //
+#if __ANDROID__
+	setenv("MONO_LOG_LEVEL", "info", 1);
+	setenv("MONO_LOG_MASK", "all", 1);
+#endif
+	mono_install_unhandled_exception_hook(unhandled_exception_handler, NULL);
+	mono_trace_set_log_handler(log_callback_default, NULL); //
 	mono_set_signal_chaining(true);
 	mono_set_crash_chaining(true);
+
+#if __ANDROID__
+	//char* buff = native_library_dir;
+	char buff[512];// = "/data/data/com.eeyoo.LZ/libmono-native.so";
+	sprintf(buff, "%s/libmono-native.so", native_library_dir);
+	platform_log("navtive lib path: %s", buff);
+	mono_dllmap_insert(NULL, "System.Native", NULL, buff, NULL);
+	mono_dllmap_insert(NULL, "System.Net.Security.Native", NULL, buff, NULL);
+#endif
 
 	mono_debug();
 	
@@ -324,6 +340,7 @@ mono_setup(char* reloadDir, const char* file) {
 #endif
 
 	mono_set_dirs(rootdir, rootdir);
+	platform_log("dll load dir: %s", rootdir);
 
 	/*
 	 * Load the default Mono configuration file, this is needed
@@ -342,6 +359,7 @@ mono_setup(char* reloadDir, const char* file) {
 #else
 	g_domain = mono_jit_init (file);
 	mono_domain_set(g_domain, false);
+	mono_thread_attach(g_domain);
 #endif
 	
 	register_assembly_map();
@@ -354,7 +372,7 @@ mono_setup(char* reloadDir, const char* file) {
 	size_t thread_cnt = 0;
 	Il2CppThread** threads = il2cpp_get_all_threads(&thread_cnt);
 	platform_log("current il2cpp attached thread count: %d", thread_cnt);
-	il2cpp_set_thread_callback(il2cpp_thread_attach_callback, il2cpp_thread_dettach_callback);
+	//il2cpp_set_thread_callback(il2cpp_thread_attach_callback, il2cpp_thread_dettach_callback);
 	//gc thread attach to il2cpp
 	//mono_gc_wait_for_bridge_processing
 

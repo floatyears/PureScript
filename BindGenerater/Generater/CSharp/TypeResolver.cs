@@ -321,8 +321,37 @@ namespace Generater
                     }
                     else
                     {
-                        CS.Writer.WriteLine($"var {name}_p = ({Utils.FullName(type)})Marshal.PtrToStructure({name}, typeof({Utils.FullName(type)}))");
-                        return $"{name}_p";
+                        if (Utils.IsBlittableType(type.GetElementType()) && !type.GetElementType().Resolve().IsEnum)
+                        {
+                            var typeName = Utils.FullName(type.GetElementType());
+                            CS.Writer.WriteLine($"var {name}_arr = arrayLen >= 0 ? new {typeName}[arrayLen] : ({Utils.FullName(type)})null");
+                            CS.Writer.WriteLine($"if({name}_arr != null) Marshal.Copy({name}, {name}_arr, 0, arrayLen);");
+                            //CS.Writer.WriteLine($"var {name}_p = ({Utils.FullName(type)})Marshal.PtrToStructure({name}, typeof({Utils.FullName(type)}))");
+                            return $"{name}_arr";
+                        }
+                        else if (Utils.IsFullValueType(type.GetElementType()))//结构体的
+                        {
+                            var typeName = Utils.FullName(type.GetElementType());
+                            CS.Writer.WriteLine($"var {name}_arr = arrayLen >= 0 ? new {typeName}[arrayLen] : ({Utils.FullName(type)})null");
+                            CS.Writer.WriteLine($"var {name}_size = Marshal.SizeOf(typeof({typeName}))");
+                            CS.Writer.WriteLine($"for(int i = 0; i < arrayLen; i++){{", false);
+                            CS.Writer.WriteLine($"{name}_arr[i] = ({typeName})Marshal.PtrToStructure(new IntPtr({name}.ToInt64() + i * {name}_size), typeof({typeName}))");
+                            CS.Writer.WriteLine($"}}", false);
+
+                            return $"{name}_arr";
+                        }else
+                        {
+                            var typeName = Utils.FullName(type.GetElementType());
+                            CS.Writer.WriteLine($"var {name}_arr = arrayLen >= 0 ? new {typeName}[arrayLen] : ({Utils.FullName(type)})null");
+                            CS.Writer.WriteLine($"var {name}_size = Marshal.SizeOf(typeof({typeName}))");
+                            CS.Writer.WriteLine($"for(int i = 0; i < arrayLen; i++){{", false);
+                            CS.Writer.WriteLine($"{name}_arr[i] = ({typeName})Marshal.PtrToStructure(new IntPtr({name}.ToInt64() + i * {name}_size), typeof({typeName}))");
+                            CS.Writer.WriteLine($"}}", false);
+
+                            return $"{name}_arr";
+                        }
+
+
                     }
                 }
                 else
