@@ -26,6 +26,38 @@ extern "C"
         int32_t handle;
     }WrapperHead;
 
+	typedef struct Il2CppObject
+	{
+		union
+		{
+			Il2CppClass* klass;
+			void* vtable;
+		};
+		void* monitor;
+	} Il2CppObject;
+
+	typedef struct Il2CppReflectionType
+	{
+		Il2CppObject object;
+		const Il2CppType* type;
+	} Il2CppReflectionType;
+
+	struct _MonoType {
+		union {
+			MonoClass* klass; /* for VALUETYPE and CLASS */
+			MonoType* type;   /* for PTR */
+			MonoArrayType* array; /* for ARRAY */
+			MonoMethodSignature* method;
+			MonoGenericParam* generic_param; /* for VAR and MVAR */
+			MonoGenericClass* generic_class; /* for GENERICINST */
+		} data;
+		unsigned int attrs : 16; /* param attributes or field flags */
+		MonoTypeEnum type : 8;
+		unsigned int has_cmods : 1;
+		unsigned int byref : 1;
+		unsigned int pinned : 1;  /* valid when included in a local var signature */
+	};
+
     
 	void bind_mono_il2cpp_object(MonoObject* mono, Il2CppObject* il2cpp);
 	MonoObject* get_mono_object_impl(Il2CppObject* il2cpp, MonoClass* m_class,bool decide_class);
@@ -39,7 +71,15 @@ extern "C"
 	MonoArray* get_mono_array(Il2CppArray * array);
 	Il2CppArray* get_il2cpp_array(MonoArray* array);
 	void copy_array_i2_mono(Il2CppArray* i2_array, MonoArray* mono_array);
-	bool is_primitive_array(MonoClass* klass);
+	void copy_il2cpp_struct_to_mono(Il2CppObject* il2cppObj, MonoObject* monoObj);
+	void copy_il2cpp_struct_to_mono_raw(void* il2cppObj, MonoObject* monoObj);
+	void get_mono_struct(Il2CppObject* i2struct, MonoObject** monoStruct, Il2CppReflectionType* i2type, int32_t i2size);
+	void get_mono_struct_raw(void* i2struct, MonoObject** monoStruct, Il2CppReflectionType* i2type, int32_t i2size);
+	bool inline is_primitive(MonoType* type);
+	bool inline is_struct(MonoClass* type);
+	bool inline is_struct_type(MonoType* klass);
+	bool inline is_full_value_struct_type(MonoType* type);
+	bool inline is_full_value_struct(MonoClass* klass);
 
 	MonoImage* mono_get_image(const char* assembly);
 	MonoClass* mono_get_class(MonoImage* image, const char* _namespace, const char* name);

@@ -321,36 +321,39 @@ namespace Generater
                     }
                     else
                     {
-                        if (Utils.IsBlittableType(type.GetElementType()) && !type.GetElementType().Resolve().IsEnum)
-                        {
-                            var typeName = Utils.FullName(type.GetElementType());
-                            CS.Writer.WriteLine($"var {name}_arr = arrayLen >= 0 ? new {typeName}[arrayLen] : ({Utils.FullName(type)})null");
-                            CS.Writer.WriteLine($"if({name}_arr != null) Marshal.Copy({name}, {name}_arr, 0, arrayLen);");
-                            //CS.Writer.WriteLine($"var {name}_p = ({Utils.FullName(type)})Marshal.PtrToStructure({name}, typeof({Utils.FullName(type)}))");
-                            return $"{name}_arr";
-                        }
-                        else if (Utils.IsFullValueType(type.GetElementType()))//结构体的
-                        {
-                            var typeName = Utils.FullName(type.GetElementType());
-                            CS.Writer.WriteLine($"var {name}_arr = arrayLen >= 0 ? new {typeName}[arrayLen] : ({Utils.FullName(type)})null");
-                            CS.Writer.WriteLine($"var {name}_size = Marshal.SizeOf(typeof({typeName}))");
-                            CS.Writer.WriteLine($"for(int i = 0; i < arrayLen; i++){{", false);
-                            CS.Writer.WriteLine($"{name}_arr[i] = ({typeName})Marshal.PtrToStructure(new IntPtr({name}.ToInt64() + i * {name}_size), typeof({typeName}))");
-                            CS.Writer.WriteLine($"}}", false);
+                        //if (Utils.IsBlittableType(type.GetElementType()) && !type.GetElementType().Resolve().IsEnum)
+                        //{
+                        //    var typeName = Utils.FullName(type.GetElementType());
+                        //    CS.Writer.WriteLine($"var {name}_arr = __arrayLen >= 0 ? new {typeName}[__arrayLen] : ({Utils.FullName(type)})null");
+                        //    CS.Writer.WriteLine($"if({name}_arr != null) Marshal.Copy({name}, {name}_arr, 0, __arrayLen);");
+                        //    //CS.Writer.WriteLine($"var {name}_p = ({Utils.FullName(type)})Marshal.PtrToStructure({name}, typeof({Utils.FullName(type)}))");
+                        //    return $"{name}_arr";
+                        //}
+                        //else if (Utils.IsFullValueType(type.GetElementType()))//结构体的
+                        //{
+                        //    var typeName = Utils.FullName(type.GetElementType());
+                        //    CS.Writer.WriteLine($"var {name}_arr = __arrayLen >= 0 ? new {typeName}[__arrayLen] : ({Utils.FullName(type)})null");
+                        //    CS.Writer.WriteLine($"var {name}_size = Marshal.SizeOf(typeof({typeName}))");
+                        //    CS.Writer.WriteLine($"for(int i = 0; i < __arrayLen; i++){{", false);
+                        //    CS.Writer.WriteLine($"{name}_arr[i] = ({typeName})Marshal.PtrToStructure(new IntPtr({name}.ToInt64() + i * {name}_size), typeof({typeName}))");
+                        //    CS.Writer.WriteLine($"}}", false);
 
-                            return $"{name}_arr";
-                        }else
-                        {
-                            var typeName = Utils.FullName(type.GetElementType());
-                            CS.Writer.WriteLine($"var {name}_arr = arrayLen >= 0 ? new {typeName}[arrayLen] : ({Utils.FullName(type)})null");
-                            CS.Writer.WriteLine($"var {name}_size = Marshal.SizeOf(typeof({typeName}))");
-                            CS.Writer.WriteLine($"for(int i = 0; i < arrayLen; i++){{", false);
-                            CS.Writer.WriteLine($"{name}_arr[i] = ({typeName})Marshal.PtrToStructure(new IntPtr({name}.ToInt64() + i * {name}_size), typeof({typeName}))");
-                            CS.Writer.WriteLine($"}}", false);
+                        //    return $"{name}_arr";
+                        //}else
+                        //{
+                        //    var typeName = Utils.FullName(type.GetElementType());
+                        //    CS.Writer.WriteLine($"var {name}_arr = __arrayLen >= 0 ? new {typeName}[__arrayLen] : ({Utils.FullName(type)})null");
+                        //    CS.Writer.WriteLine($"var {name}_size = Marshal.SizeOf(typeof({typeName}))");
+                        //    CS.Writer.WriteLine($"for(int i = 0; i < __arrayLen; i++){{", false);
+                        //    CS.Writer.WriteLine($"{name}_arr[i] = ({typeName})Marshal.PtrToStructure(new IntPtr({name}.ToInt64() + i * {name}_size), typeof({typeName}))");
+                        //    CS.Writer.WriteLine($"}}", false);
 
-                            return $"{name}_arr";
-                        }
+                        //    return $"{name}_arr";
+                        //}
+                        //以上是marshal，下面的是internal call，internal call要注意gc时的内存
 
+                        CS.Writer.WriteLine($"var {name}_arr = ObjectStore.GetObjectByPtrMono(__retArrayPtr) as {Utils.FullName(type)}");
+                        return $"{name}_arr";
 
                     }
                 }
@@ -533,7 +536,7 @@ namespace Generater
             var method = context.memberDefinition as MethodDefinition;
             if (method != null)
             {
-                if(!method.IsCompilerControlled)
+                //if(!method.IsCompilerControlled)
                 {
                     contextMember = method;
                     isStaticMember = method.IsStatic;
@@ -552,7 +555,7 @@ namespace Generater
         static string FullMemberName(MethodDefinition method)
         {
             var methodName = method.Name;
-            if (method.IsAddOn || method.IsSetter || method.IsGetter)
+            if (method.IsAddOn) // || method.IsSetter || method.IsGetter)
                 methodName = methodName.Substring("add_".Length);//trim "add_" or "set_"
             else if (method.IsRemoveOn)
                 methodName = methodName.Substring("remove_".Length);//trim "remove_"
@@ -590,6 +593,7 @@ namespace Generater
          */
         bool WriteBoxedMember(string name)
         {
+            bool isUnityBind = CS.Writer.WriterType == CodeWriter.CodeWriterType.UnityBind;
             if (contextMember == null)
                 return false;
 
@@ -601,7 +605,7 @@ namespace Generater
             string _member = _Member(name);// _logMessageReceived
             string _action = _Action(name);// logMessageReceivedAction
 
-            var flag = isStaticMember ? "static" : "";
+            var flag = (isUnityBind || isStaticMember) ? "static" : "";
             var eventTypeName = TypeResolver.Resolve(type).RealTypeName();
             if (type.IsGenericInstance)
                 eventTypeName = Utils.GetGenericTypeName(type);
@@ -613,13 +617,17 @@ namespace Generater
             //static event global::UnityEngine.Application.LogCallback _logMessageReceived;
             CS.Writer.WriteLine($"public {flag} {eventTypeName} {_member}");
 
-            if(!isStaticMember)
+            if(!isUnityBind && !isStaticMember)
                 CS.Writer.WriteLine($"public GCHandle {_member}_ref"); // resist gc
 
             //static Action<int, int, int> logMessageReceivedAction = OnlogMessageReceived;
             CS.Writer.WriteLine($"static {eventDeclear} {_action} = On{name}");
 
             //static void OnlogMessageReceived(int arg0,int arg1,int arg2)
+            if(isUnityBind)
+            {
+                CS.Writer.WriteLine($"[MonoPInvokeCallback(typeof({eventDeclear}))]", false);
+            }
             var eventFuncDeclear = $"static {returnTypeName} On{name}(";
 
             for (int i = 0; i < paramTpes.Count; i++)
@@ -639,7 +647,7 @@ namespace Generater
             //_logMessageReceived(unbox(arg0), unbox(arg1), unbox(arg2));
             var callCmd = $"{_member}(";
             var targetObj = "";
-
+            var checkCond = "";
             for (int i = 0; i < paramTpes.Count; i++)
             {
                 var p = paramTpes[i];
@@ -647,7 +655,14 @@ namespace Generater
 
                 if (i == 0 && !isStaticMember)
                 {
-                    targetObj = param + ".";
+                    if(isUnityBind)
+                    {
+                        checkCond = $"if({param} == {_member}.Target) ";
+                    }
+                    else
+                    {
+                        targetObj = param + ".";
+                    }
                     continue;
                 }
 
@@ -659,8 +674,14 @@ namespace Generater
 
             if (!string.IsNullOrEmpty(targetObj))
                 callCmd = targetObj + callCmd;
+            
             if (returnType != null)
-                callCmd = $"var res = " + callCmd;
+            {
+                CS.Writer.WriteLine($"var res = default({Utils.FullName(returnType)})");
+                callCmd = $"res = " + callCmd;
+            }
+            if (!string.IsNullOrEmpty(checkCond))
+                callCmd = checkCond + callCmd;
 
             CS.Writer.WriteLine(callCmd);
             if (returnType != null)
@@ -673,7 +694,7 @@ namespace Generater
             CS.Writer.WriteLine("__e = e");
             CS.Writer.End();//catch
             CS.Writer.WriteLine("if(__e != null)", false);
-            CS.Writer.WriteLine("ScriptEngine.OnException(__e.ToString())");
+            CS.Writer.WriteLine("ScriptEngine.OnException(__e)");
             if (returnType != null)
                 CS.Writer.WriteLine($"return default({returnTypeName})");
 
@@ -691,25 +712,28 @@ namespace Generater
         }
 
          */
-        void WriteUnboxedMember(string name)
+        bool WriteUnboxedMember(string name)
         {
             if (contextMember == null)
-                return;
+                return false;
 
             var varName = uniqueName + name;
 
             if (UnBoxedMemberSet.Contains(varName))
-                return;
+                return false;
             UnBoxedMemberSet.Add(varName);
 
             string _member = _Member(name);// _logMessageReceived
+            string _action = _Action(name);// logMessageReceivedAction
 
+            var eventTypeName = TypeResolver.Resolve(type).RealTypeName();
             var paramTpes = Utils.GetDelegateParams(type, isStaticMember ? null : declarType, out var returnType); // string , string , LogType ,returnType
             var returnTypeName = returnType != null ? TypeResolver.Resolve(returnType).RealTypeName() : "void";
             var eventDeclear = Utils.GetDelegateWrapTypeName(type, isStaticMember ? null : declarType); //Action <int,int,int>
 
             //static void OnlogMessageReceived(string arg0, string arg1, LogType arg2)
             //mono bind内非static的delegate需要返回当前的实例对象而不是static的对象
+            bool isMonoBind = CS.Writer.WriterType == CodeWriter.CodeWriterType.MonoBind;
             bool isMonoBindInstanceGetter = CS.Writer.WriterType == CodeWriter.CodeWriterType.MonoBind && !isStaticMember && contextMember.IsGetter;
             var eventFuncDeclear = $"{(isMonoBindInstanceGetter ? "" : "static")} {returnTypeName} On{name}(";
             for (int i = 0; i < paramTpes.Count; i++)
@@ -730,11 +754,13 @@ namespace Generater
             eventFuncDeclear += ")";
 
             //mono bind内非static的delegate需要返回当前的实例对象而不是static的对象
-            CS.Writer.WriteLine($"{(isMonoBindInstanceGetter ? "" : "static")} {eventDeclear} {_member}");
+            CS.Writer.WriteLine($"{(isMonoBindInstanceGetter ? "" : "static")} {(isMonoBind ? eventTypeName : eventDeclear)} {_member}"); //mono层内自己的函数指针单独保存
+            //这个的目的是用一个delegate单独存储指向il2cpp的函数指针，
+            CS.Writer.WriteLine($"{(isMonoBindInstanceGetter ? "" : "static")} {eventDeclear} {_action}");
 
             CS.Writer.Start(eventFuncDeclear);
 
-            var callCmd = $"{_member}(";
+            var callCmd = $"{_action}(";
             if (returnType != null)
             {
                 var localVar = TypeResolver.Resolve(returnType, null, MemberTypeSlot.ReturnType, MethodTypeSlot.GeneratedDelegate).Paramer("res", CS.Writer.WriterType == CodeWriter.CodeWriterType.MonoBind);
@@ -762,22 +788,26 @@ namespace Generater
             }
 
             CS.Writer.End();
-
+            return true;
         }
 
         public override string Box(string name)
         {
             var memberUniqueName = $"{uniqueName}_{name}";
             bool writeBoxed = false;
-            using (new LP(CS.Writer.GetLinePoint("//member")))
+            bool isUnityBind = CS.Writer.WriterType == CodeWriter.CodeWriterType.UnityBind;
+            using (new LP(CS.Writer.GetLinePoint(!isUnityBind ? "//member" : "//Method")))
             {
                 writeBoxed = WriteBoxedMember(memberUniqueName);
             }
             
             var _action = _Action(memberUniqueName);
             var _member = _Member(memberUniqueName);
-
-            CS.Writer.WriteLine($"var {memberUniqueName}_p = Marshal.GetFunctionPointerForDelegate({(writeBoxed ? _action : name)})");
+            if(isUnityBind)
+            {
+                CS.Writer.WriteLine($"{_member} = {name}");
+            }
+            CS.Writer.WriteLine($"var {memberUniqueName}_p = {(writeBoxed ? _action : name)} != null ? Marshal.GetFunctionPointerForDelegate({(writeBoxed ? _action : name)}) : IntPtr.Zero");
             return $"{memberUniqueName}_p";
         }
 
@@ -785,23 +815,24 @@ namespace Generater
         public override string Unbox(string name, bool previous)
         {
             var memberUniqueName = $"{uniqueName}_{name}";
-
+            bool writeUnboxed = false;
             var isMonoBindInstanceGetter = CS.Writer.WriterType == CodeWriter.CodeWriterType.MonoBind && !isStaticMember && contextMember.IsGetter;
             if(!contextMember.IsRemoveOn)
             {
                 var isMonoBindGetterSetter = CS.Writer.WriterType == CodeWriter.CodeWriterType.MonoBind && contextMember != null && (contextMember.IsSetter || contextMember.IsGetter);
                 using (new LP(CS.Writer.GetLinePoint(isMonoBindGetterSetter ? "//member" : "//Method")))
                 {
-                    WriteUnboxedMember(memberUniqueName);
+                    writeUnboxed = WriteUnboxedMember(memberUniqueName);
                 }
 
+                var _action = _Action(memberUniqueName);
                 string _member = _Member(memberUniqueName);// _logMessageReceived
 
                 string ptrName = $"{name}_p";
 
                 var eventDeclear = Utils.GetDelegateWrapTypeName(type, isStaticMember ? null : declarType);
 
-                var unboxCmd = $"{_member} = {ptrName} == IntPtr.Zero ? null: Marshal.GetDelegateForFunctionPointer<{eventDeclear}>({ptrName})";
+                var unboxCmd = $"{(writeUnboxed ? _action : _member)} = {ptrName} == IntPtr.Zero ? null: Marshal.GetDelegateForFunctionPointer<{eventDeclear}>({ptrName})";
                 if (previous)
                     CS.Writer.WritePreviousLine(unboxCmd);
                 else
@@ -858,15 +889,36 @@ namespace Generater
 
         public override string Unbox(string name, bool previous = false)
         {
-            if (CS.Writer.WriterType == CodeWriter.CodeWriterType.MonoBind && !context.IsGeneratedDelegate)
+            if (context.IsGenerated && !context.IsParamerterType) //作为返回值
             {
-                CS.Writer.WriteLine($"var {name}_p = ({Utils.FullName(type)})Marshal.PtrToStructure({name}, typeof({Utils.FullName(type)}))");
-                return $"{name}_p";
+                if (context.IsGeneratedDelegate)
+                {
+                    CS.Writer.WriteLine($"var {name}_gchandle = GCHandle.FromIntPtr({name})");
+                    CS.Writer.WriteLine($"var {name}_p = ({name}_gchandle != null) ? ({Utils.FullName(type)}){name}_gchandle.Target : null");
+                    CS.Writer.WriteLine($"if({name}_gchandle != null){{ {name}_gchandle.Free(); }}");
+                    //CS.Writer.WriteLine($"var {name}_p = ({Utils.FullName(type)})Marshal.PtrToStructure({name}, typeof({Utils.FullName(type)}))");
+                    return $"{name}_p";
+                }
+                else
+                {
+                    CS.Writer.WriteLine($"var {name}_st = ({Utils.FullName(type)})ObjectStore.GetObjectByPtrMono(__retStructPtr)");
+                    //CS.Writer.WriteLine($"var {name}_p = ({Utils.FullName(type)})Marshal.PtrToStructure({name}, typeof({Utils.FullName(type)}))");
+                    return $"{name}_st";
+                }
             }
             else
             {
                 return base.Unbox(name, previous);
             }
+            //if (CS.Writer.WriterType == CodeWriter.CodeWriterType.MonoBind && !context.IsGeneratedDelegate)
+            //{
+            //    CS.Writer.WriteLine($"var {name}_p = {name} != null ? ({Utils.FullName(type)})Marshal.PtrToStructure({name}, typeof({Utils.FullName(type)})) : default({Utils.FullName(type)})");
+            //    return $"{name}_p";
+            //}
+            //else
+            //{
+            //    return base.Unbox(name, previous);
+            //}
         }
     }
 
@@ -939,11 +991,19 @@ namespace Generater
          }*/
         public override string Unbox(string name, bool previous = false)
         {
-            if(!Utils.IsBlittableType(type) //(type.FullName == "System.Type" || type.FullName == "System.Collections.IEnumerator" || type.FullName == "System.IO.Stream") 
-                && CS.Writer.WriterType == CodeWriter.CodeWriterType.MonoBind)
+            if(!Utils.IsBlittableType(type) && CS.Writer.WriterType == CodeWriter.CodeWriterType.MonoBind)
             {
-                CS.Writer.WriteLine($"var {name}_p = ({Utils.FullName(type)})Marshal.PtrToStructure({name}, typeof({Utils.FullName(type)}))");
-                return $"{name}_p";
+                if (type.IsStruct(false))
+                {
+                    CS.Writer.WriteLine($"var {name}_st = ({Utils.FullName(type)})ObjectStore.GetObjectByPtrMono(__retStructPtr)");
+                    //CS.Writer.WriteLine($"var {name}_p = ({Utils.FullName(type)})Marshal.PtrToStructure({name}, typeof({Utils.FullName(type)}))");
+                    return $"{name}_st";
+                }
+                else
+                {
+                    CS.Writer.WriteLine($"var {name}_p = ({Utils.FullName(type)})Marshal.PtrToStructure({name}, typeof({Utils.FullName(type)}))");
+                    return $"{name}_p";
+                }
             }
             else
             {

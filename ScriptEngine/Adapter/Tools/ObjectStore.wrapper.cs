@@ -42,7 +42,10 @@ public static class ObjectStore
 
     [MethodImpl(MethodImplOptions.InternalCall)]
     private static extern object OnException(Exception e);
-
+    
+    [MethodImpl(MethodImplOptions.InternalCall)]
+    public static extern object GetObjectByPtrMono(IntPtr ptr);
+    
 /*
     public static int Store(object obj)
     {

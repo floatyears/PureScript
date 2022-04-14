@@ -77,8 +77,19 @@ namespace Generater
                     //    continue;
                     if (field.IsPublic)
                     {
-                        properties.Add(new PropertyGenerater(field));
-                        RefNameSpace.Add(field.FieldType.Namespace);
+                        if(field.FieldType.Resolve().IsDelegate())
+                        {
+                            if (Utils.Filter(field.FieldType))
+                            {
+                                events.Add(new DelegateGenerater(field));
+                                RefNameSpace.Add(field.FieldType.Namespace);
+                            }
+                        }else
+                        {
+                            properties.Add(new PropertyGenerater(field));
+                            RefNameSpace.Add(field.FieldType.Namespace);
+                        }
+                        
                     }
 
                 }

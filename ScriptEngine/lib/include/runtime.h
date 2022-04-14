@@ -11,10 +11,12 @@
 
 #include <mono/jit/jit.h>
 //#include <mono/metadata/object.h>
+#define DEBUG 1
 
 #if __ANDROID__
 #include "runtime_android.h"
 #endif
+
 
 #if TARGET_OS_IPHONE || TARGET_IPHONE_SIMULATOR || TARGET_OS_TV || TARGET_TVOS_SIMULATOR
 #define RUNTIME_IOS 1
@@ -29,6 +31,18 @@ extern "C"
 #define platform_log(FORMAT, ...) _log(FORMAT, ##__VA_ARGS__)
 #else
 #define platform_log(FORMAT, ...) _platform_log(FORMAT, ##__VA_ARGS__)
+#endif
+
+#if __ANDROID__
+#define sprintf_s(BUFFER, SIZE, FORMAT, ...) snprintf(BUFFER, SIZE, FORMAT, ##__VA_ARGS__)
+#else
+#define sprintf_s(BUFFER, SIZE, FORMAT, ...) sprintf_s(BUFFER, SIZE, FORMAT, ##__VA_ARGS__)
+#endif
+
+#if __ANDROID__
+#define wprintf_s(BUFFER, SIZE, FORMAT, ...) swprintf(BUFFER, SIZE, FORMAT, ##__VA_ARGS__)
+#else
+#define wprintf_s(BUFFER, SIZE, FORMAT, ...) wprintf_s(BUFFER, SIZE, FORMAT, ##__VA_ARGS__)
 #endif
 
 	void _platform_log(const char* _format, ...);

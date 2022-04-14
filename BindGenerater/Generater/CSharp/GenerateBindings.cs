@@ -31,7 +31,7 @@ namespace Generater
             delegateDefines.Add(defineStr);
         }
 
-        private void GenDefines()
+        private void GenDefines(bool isMonoBind = false)
         {
             // method define
             foreach (var method in methods)
@@ -39,7 +39,7 @@ namespace Generater
                 CS.Writer.WriteLine("[UnmanagedFunctionPointer(CallingConvention.Cdecl)]", false);
                 //MethodResolver.Resolve(method).DefineDelegate();
                 var flag = Utils.IsUnsafeMethod(method) ? " unsafe " : " ";
-                CS.Writer.WriteLine($"public{flag}delegate {MethodResolver.Resolve(method).ReturnType()} {Utils.BindMethodName(method, true, false)}_Type {Utils.BindMethodParamDefine(method, true)}");
+                CS.Writer.WriteLine($"public{flag}delegate {MethodResolver.Resolve(method).ReturnType()} {Utils.BindMethodName(method, true, false, isMonoBind)}_Type {Utils.BindMethodParamDefine(method, true, isMonoBind)}");
             }
 
             // delegate define
@@ -67,7 +67,7 @@ namespace Generater
                 foreach (var ns in nsSet)
                     CS.Writer.WriteLine($"using {ns}");
 
-                GenDefines();
+                GenDefines(true);
 
                 // wrapper imple
                 //CS.Writer.WriteLine("using PureScript.Mono");
@@ -76,7 +76,7 @@ namespace Generater
 
                 foreach (var method in methods)
                 {
-                    var methodName = Utils.BindMethodName(method, true, false);
+                    var methodName = Utils.BindMethodName(method, true, false, true);
                     CS.Writer.WriteLine($"public static {methodName}_Type {methodName}");
                 }
 
@@ -91,7 +91,7 @@ namespace Generater
 
                 foreach (var method in methods)
                 {
-                    var methodName = Utils.BindMethodName(method, true, false);
+                    var methodName = Utils.BindMethodName(method, true, false, true);
                     CS.Writer.WriteLine($"{methodName} = Marshal.GetDelegateForFunctionPointer<{methodName}_Type>(Marshal.ReadIntPtr(memory, {Offset} * IntPtr.Size ))");
                     Offset++;
                 }
@@ -153,9 +153,22 @@ namespace Generater
                     CS.Writer.Start("try");
 
                     var reName = MethodResolver.Resolve(method).Implement("_value");
-                    if(method.ReturnType != null && method.ReturnType.IsArray)
+                    if (method.ReturnType != null)
                     {
-                        CS.Writer.WriteLine($"arrayLen = {reName} != null ? {reName}.Length : -1;");
+                        if (method.ReturnType.IsArray)
+                        {
+                            CS.Writer.WriteLine($"__arrayLen = {reName} != null ? {reName}.Length : -1");
+                            CS.Writer.WriteLine($"if({reName} != null) {{ ObjectStore.GetReturnArrayMono({reName}, ref __retArrayPtr); }} ");
+                            reName = null; //return value is assigned with out parameter
+                        }
+                        else if (method.ReturnType.IsStruct(false))
+                        {
+                            CS.Writer.WriteLine($"var {reName}_gchandle = GCHandle.Alloc(_value, GCHandleType.Pinned); ");
+                            CS.Writer.WriteLine($"ObjectStore.GetReturnStructMono({reName}_gchandle.AddrOfPinnedObject(), ref __retStructPtr, typeof({Utils.FullName(method.ReturnType)}), Marshal.SizeOf<{Utils.FullName(method.ReturnType)}>())");
+                            CS.Writer.WriteLine($"{reName}_gchandle.Free()");
+                            //outStruct = $"__retStruct = default({Utils.FullName(method.ReturnType)})";
+                            reName = null; //return value is assigned with out parameter
+                        }
                     }
                     if (!string.IsNullOrEmpty(reName))
                         CS.Writer.WriteLine($"return {reName}");
@@ -164,8 +177,7 @@ namespace Generater
                     CS.Writer.WriteLine("__e = _e_");
                     CS.Writer.End();//catch
 
-                    CS.Writer.WriteLine("if(__e != null)", false);
-                    CS.Writer.WriteLine("ScriptEngine.OnException(__e.ToString())");
+                    CS.Writer.WriteLine("if(__e != null) { ScriptEngine.OnException(__e); }", false);
                     if (!string.IsNullOrEmpty(reName))
                         CS.Writer.WriteLine($"return default({MethodResolver.Resolve(method).ReturnType()})");
 

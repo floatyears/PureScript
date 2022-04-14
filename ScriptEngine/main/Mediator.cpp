@@ -32,6 +32,10 @@ bool is_wrapper_class(Il2CppClass* klass)
 {
 	//return il2cpp_check_flag(klass, CLASS_MASK_WRAPPER);
 	//return klass->initialized & CLASS_MASK_WRAPPER;
+	if (klass == NULL)
+	{
+		return false;
+	}
 	const char* ns = il2cpp_class_get_namespace(klass);
 	return is_wrapper_name_space(ns);
 }
@@ -142,6 +146,70 @@ MonoObject* get_mono_object_impl(Il2CppObject* il2cpp, MonoClass* m_class, bool 
 	}
 	return monoObj;
 }
+void copy_il2cpp_struct_to_mono(Il2CppObject* il2cppObj, MonoObject* monoObj)
+{
+	if (il2cppObj == NULL)
+	{
+		MonoType* type = mono_class_get_type(mono_object_get_class(monoObj));
+		MonoClass* klass = mono_class_from_mono_type(type);
+		platform_log("il2cpp obj is null when copying struct %d", mono_class_get_name(klass));
+		return;
+	}
+	void* raw_data = (char*)il2cppObj + sizeof(Il2CppObject);
+	copy_il2cpp_struct_to_mono_raw(raw_data, monoObj);
+}
+
+void copy_il2cpp_struct_to_mono_raw(void* il2cppData, MonoObject* monoObj)
+{
+	
+	//note: array element in Il2CppArray is not neccesarily Il2CppObject*, it may be a flat struct type
+	MonoType* type = mono_class_get_type(mono_object_get_class(monoObj));
+	MonoClass* klass = mono_class_from_mono_type(type);
+	if (il2cppData == NULL)
+	{
+		platform_log("il2cpp struct is null when copying struct %d", mono_class_get_name(klass));
+		return;
+	}
+	gpointer iter = NULL;
+	MonoClassField* field = NULL;
+	int align = 0;
+	int size = 0;
+	while ((field = mono_class_get_fields(klass, &iter))) {
+		MonoType* field_type = mono_field_get_type(field);
+		uint32_t offset = mono_field_get_offset(field);
+		if (offset < sizeof(MonoObject))
+		{
+			platform_log("copy struct fail, field %s 's offset is %d", mono_class_get_name(mono_class_from_mono_type(field_type)), offset);
+			return;
+		}
+		else
+		{
+			offset -= sizeof(MonoObject);
+		}
+		if (field_type->type == MONO_TYPE_CLASS) // is_primitive(field_type)) //do a shallow copy
+		{
+			//size = mono_type_size(field_type, &align);
+			Il2CppObject* i2obj = (Il2CppObject*)(void*)((char*)il2cppData + offset);
+			MonoObject* monoobj = get_mono_object(i2obj, mono_class_from_mono_type(field_type));
+			//mono_field_set_value(monoObj, field, monoobj);
+			mono_gc_wbarrier_set_field(monoObj, field, monoobj);
+		}
+		else if(is_struct_type(field_type))
+		{
+			MonoObject** monoobj = NULL;
+			get_mono_struct((Il2CppObject*)((char*)il2cppData + offset), monoobj, get_il2cpp_reflection_type(mono_type_get_object(g_domain, type)), mono_class_value_size(klass, NULL));
+			if (monoobj != NULL)
+			{
+				mono_gc_wbarrier_set_field(monoObj, field, *monoobj);
+			}
+		}
+		else
+		{
+			mono_field_set_value(monoObj, field, (void*)((char*)il2cppData + offset));
+		}
+	}
+}
+
 Il2CppObject* get_il2cpp_object(MonoObject* mono, Il2CppClass* m_class)
 {
 	if (mono == NULL)
@@ -213,29 +281,77 @@ MonoArray* get_mono_array(Il2CppArray * array)
 	if (array == NULL)
 		return monoArray;
 
+	uint32_t len = il2cpp_array_length(array);
+	if (len == 0) //check the array length first
+		return NULL;
 
-	Il2CppClass* eklass = il2cpp_class_get_element_class(il2cpp_object_get_class((Il2CppObject*)array));
+	Il2CppClass* aklass = il2cpp_object_get_class((Il2CppObject*)array);
+	Il2CppClass* eklass = il2cpp_class_get_element_class(aklass);
+
+	if (eklass == NULL)
+	{
+		platform_log("array class element is not Il2CppObject: %s", il2cpp_class_get_name(aklass));
+	}
+	
 	MonoClass* monoklass = get_mono_class(eklass);
     if(monoklass == NULL)
     {
+		platform_log("no match mono class with Il2CppObject: %s, len: %d", il2cpp_class_get_name(aklass), len);
         Il2CppObject* il2cppObj = il2cpp_array_get(array, Il2CppObject*, 0);
         MonoObject* monoObj = get_mono_object(il2cppObj, NULL);
         if(monoObj != NULL)
             monoklass = mono_object_get_class(monoObj);
     }
-    
-	uint32_t len = il2cpp_array_length(array);
-	if (len == 0)
-		return NULL;
+		
 	monoArray = mono_array_new(g_domain, monoklass, len);
+	MonoType* monoType = mono_class_get_type(monoklass);
 	//if (len == 0)
 	//	return monoArray;
-	if (is_primitive_array(monoklass))
+	if (is_primitive(monoType))
 	{
 		char* _p = il2cpp_array_addr_with_size(array, il2cpp_class_array_element_size(eklass), 0);
 		//void** __p = (void**)mono_array_addr((dest), void*, (destidx));
 		char* _s = mono_array_addr_with_size((monoArray), mono_class_array_element_size(monoklass), 0);
 		mono_gc_wbarrier_value_copy(_s, _p, len, monoklass);
+	}
+	else if (is_struct_type(monoType))
+	{
+		int i2size = il2cpp_class_array_element_size(eklass);
+		int32_t monosize = mono_class_array_element_size(monoklass);
+		//if (i2size != monosize)
+		{
+			platform_log("copy struct: %s, monosize-%d, il2size-%d", mono_class_get_name(monoklass), monosize, i2size);
+		}
+		if (is_full_value_struct_type(monoType))
+		{
+			//copy sturct from
+			
+			char* _p = il2cpp_array_addr_with_size(array, il2cpp_class_array_element_size(eklass), 0);
+			//void** __p = (void**)mono_array_addr((dest), void*, (destidx));
+			char* _s = mono_array_addr_with_size((monoArray), mono_class_array_element_size(monoklass), 0);
+			mono_gc_wbarrier_value_copy(_s, _p, len, monoklass);
+		}
+		else
+		{
+			//TODO: this is not gc safe, use marshal
+			for (int i = 0; i < len; i++)
+			{
+				//as to full type struct£¬can memcpy
+				//char* il2cppObj = il2cpp_array_addr_with_size(array, i2size, i);
+				//MonoObject* monoObj = mono_object_new(g_domain, monoklass);// get_mono_object(il2cppObj, monoklass);
+				//char* p = (char*)(void*)monoObj;
+				////mono_gc_wbarrier_value_copy();
+				//if (i2size == monosize)
+				//{
+				//	mono_gc_wbarrier_value_copy((char*)il2cppObj + sizeof(Il2CppObject), p + sizeof(MonoObject), i2size - sizeof(Il2CppObject), monoklass);
+				//}
+				//array's struct element is plain data
+				char* il2cppObj = il2cpp_array_addr_with_size(array, i2size, i);
+				MonoObject* monoObj = mono_object_new(g_domain, monoklass);// get_mono_object(il2cppObj, monoklass);
+				copy_il2cpp_struct_to_mono_raw((void*)il2cppObj, monoObj);
+				mono_array_setref(monoArray, i, monoObj);
+			}
+		}
 	}
 	else
 	{
@@ -288,21 +404,109 @@ void copy_array_i2_mono(Il2CppArray* i2_array, MonoArray* mono_array)
 		mono_array_setref(mono_array, i, monoObj);
 	}
 }
-
-bool is_primitive_array(MonoClass* klass)
+void get_mono_struct(Il2CppObject* i2struct, MonoObject** monoStruct, Il2CppReflectionType* i2type, int32_t i2size)
 {
-	const char* ns = mono_class_get_namespace(klass);
-	const char* klsname = mono_class_get_name(klass);
-	//platform_log("kclass name: %s-%s", ns, klsname);
-	if (strcmp(ns, "System"))
+	void* raw_data = (char*)i2struct + sizeof(Il2CppObject);
+	get_mono_struct_raw(raw_data, monoStruct, i2type, i2size);
+}
+
+void get_mono_struct_raw(void* i2struct, MonoObject** monoStruct, Il2CppReflectionType* i2type, int32_t i2size)
+{
+	Il2CppClass* i2class = il2cpp_type_get_class_or_element_class(i2type->type);
+	if (i2class == NULL)
 	{
+		char* tname = il2cpp_type_get_name(i2type->type);
+		platform_log("the type doesn't exists %s", tname);
+		il2cpp_free(tname);
+		return;
+	}
+	MonoClass* klass = get_mono_class(i2class);
+	if (klass == NULL || !is_struct(klass))
+	{
+		platform_log("the return value is not a struct: %s", il2cpp_class_get_name(i2class));
+		return;
+	}
+	int32_t size = mono_class_value_size(klass, NULL);
+	if (size != i2size)
+	{
+		platform_log("the mono and il2cpp struct has differnet length: m-%d, i-%d", size, i2size);
+		return;
+	}
+	if (is_full_value_struct(klass))
+	{
+		MonoObject* tmp = mono_object_new(g_domain, klass);
+		*monoStruct = tmp;
+		if (monoStruct != NULL)
+		{
+			//platform_log("mono full value struct copy: %s, addr:%d, size:%d", mono_class_get_name(klass), i2struct, size);
+			mono_gc_wbarrier_value_copy((char*)tmp + sizeof(MonoObject), i2struct, 1, klass);
+		}
+		else
+		{
+			platform_log("mono struct new failed: %s", mono_class_get_name(klass));
+		}
+	}
+	else
+	{
+		MonoObject* tmp = mono_object_new(g_domain, klass);
+		*monoStruct = tmp;
+		copy_il2cpp_struct_to_mono_raw(i2struct, tmp);
+		return;
+	}
+}
+
+bool inline is_primitive(MonoType* type)
+{
+	return !type->byref && ((type->type >= MONO_TYPE_BOOLEAN && type->type <= MONO_TYPE_R8) || (type->type >= MONO_TYPE_I && type->type <= MONO_TYPE_U));
+}
+
+bool inline is_struct(MonoClass* klass)
+{
+	MonoType* type = mono_class_get_type(klass);
+	return is_struct_type(type);
+}
+
+bool inline is_struct_type(MonoType* type)
+{
+	return !type->byref && type->type == MONO_TYPE_VALUETYPE && !is_primitive(type);
+}
+
+bool inline is_full_value_struct(MonoClass* klass)
+{
+	MonoType* type = mono_class_get_type(klass);
+	return is_full_value_struct_type(type);
+}
+
+bool inline is_full_value_struct_type(MonoType* type)
+{
+	if (!is_struct_type(type)) {
 		return false;
 	}
-	if (!strcmp(klsname, "Byte")) //primitive array type
-	{
-		return true;
+	MonoClass* klass = mono_class_from_mono_type(type);
+	gpointer iter = NULL;
+	MonoClassField* field = NULL;
+	
+	while ((field = mono_class_get_fields(klass, &iter))) {
+		MonoType* ftype = mono_field_get_type(field);
+		MonoClass* fklass = mono_class_from_mono_type(ftype);
+#if DEBUG
+		//platform_log("check type:%s is full value struct, field:%s, type:%d, name: %s", mono_class_get_name(klass), mono_class_get_name(fklass), ftype->type, mono_field_get_name(field));
+#endif
+		if (ftype == type)
+		{
+			continue;
+		}
+
+		//enum type has a enum type field in it, this will cause a dead circle
+		if (!(is_primitive(ftype) || mono_class_is_enum(fklass) || is_full_value_struct_type(ftype)))
+		{
+#if DEBUG
+			//platform_log("type:%s is not full value struct, field:%s, type:%d", mono_class_get_name(klass), mono_class_get_name(fklass), ftype->type);
+#endif
+			return false;
+		}
 	}
-	return false;
+	return true;
 }
 
 Il2CppClass* get_il2cpp_class(MonoClass* mclass)
@@ -416,10 +620,9 @@ MonoClass* mono_search_class(const char* assembly, const char* _namespace,
 	MonoImage* image = mono_get_image(assembly);
 	MonoClass* klass = mono_get_class(image, _namespace, name);
 
-	if (klass == 0)
+	if (klass == NULL)
 	{
-		int c = 0;
-		//TODO: exception..
+		platform_log("fail to search class %s.%s", _namespace, name);
 	}
 
 	return klass;

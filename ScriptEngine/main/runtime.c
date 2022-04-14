@@ -386,6 +386,7 @@ mono_setup(char* reloadDir, const char* file) {
 
 int mono_exit()
 {
+	platform_log("exit mono env");
 	int retval = mono_environment_exitcode_get ();
 
 	mono_jit_cleanup (mono_domain_get());

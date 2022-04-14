@@ -12,8 +12,7 @@
 #define DLLEXPORT 
 #endif
 
-const char* il2cpp_exception = NULL;
-const char* mono_exception = NULL;
+
 void* g_manageFuncPtr = NULL;
 
 DLLEXPORT void SetupMono(char* bundleDir, const char* dllName)
@@ -34,35 +33,4 @@ DLLEXPORT void SetFuncPointer(void * ptr)
 DLLEXPORT void* GetFuncPointer()
 {
 	return g_manageFuncPtr;
-}
-
-DLLEXPORT void OnExceptionIl2cpp(const char* msg)
-{
-	//raise_mono_exception_runtime(msg);
-	il2cpp_exception = msg;
-}
-DLLEXPORT void CheckExceptionIl2cpp()
-{
-	if (il2cpp_exception)
-	{
-		MonoException* exc = mono_exception_from_name_msg(mono_get_corlib(), "System", "Exception", il2cpp_exception);
-		il2cpp_exception = NULL;
-		mono_raise_exception(exc);
-	}
-}
-
-DLLEXPORT void OnExceptionMono(const char* msg)
-{
-	//raise_il2cpp_exception_runtime(msg);
-	mono_exception = msg;
-}
-
-DLLEXPORT void CheckExceptionMono()
-{
-	if (mono_exception)
-	{
-		Il2CppException* exc = il2cpp_exception_from_name_msg(il2cpp_get_corlib(), "System", "Exception", mono_exception);
-		mono_exception = NULL;
-		il2cpp_raise_exception(exc);
-	}
 }

@@ -23,7 +23,7 @@ namespace Generater
 
         //declear : static void UnityEngine_GameObject_SetActive (int thiz_h, System.Boolean value)
         //or: MonoBind.UnityEngine_GameObject_SetActive(this.Handle, value)
-        public static string BindMethodName(MethodDefinition method, bool declear = false,bool withParam = true)
+        public static string BindMethodName(MethodDefinition method, bool declear = false,bool withParam = true, bool isInMono = false)
         {
             var name = method.DeclaringType.FullName + "_" + GetSignName(method);
 
@@ -32,14 +32,14 @@ namespace Generater
                 res = "MonoBind." + res;
 
             if (withParam)
-                res += BindMethodParamDefine(method, declear);
+                res += BindMethodParamDefine(method, declear, isInMono);
 
             return res;
         }
 
         //declear : (int thiz_h, System.Boolean value)
         //or:(this.Handle, value)
-        public static string BindMethodParamDefine(MethodDefinition method, bool declear = false)
+        public static string BindMethodParamDefine(MethodDefinition method, bool declear = false, bool isInMono = false)
         {
             var param = "(";
 
@@ -65,9 +65,6 @@ namespace Generater
 					if (method.HasParameters)
                         param += ", ";
                 }
-                
-
-                
             }
 
             var lastP = method.Parameters.LastOrDefault();
@@ -83,9 +80,17 @@ namespace Generater
                 }
 
             }
-            if(method.ReturnType != null && method.ReturnType.IsArray)
+            if(method.ReturnType != null)
             {
-                param += $"{(!method.IsStatic || method.HasParameters ? ", " : "")}ref{(declear ? " int" : "")} arrayLen";
+                if(method.ReturnType.IsArray)
+                {
+                    //delegate defines in mono can have array other than IntPtr
+                    param += $"{(!method.IsStatic || method.HasParameters ? ", " : "")}ref {(declear ? (isInMono ? "IntPtr" : "IntPtr") : "")} __retArrayPtr, ref {(declear ? "int" : "")} __arrayLen";
+                }
+                else if(method.ReturnType.IsStruct(false)) //add struct as ref parameter
+                {
+                    param += $"{(!method.IsStatic || method.HasParameters ? ", " : "")}ref {(declear ? (isInMono ? "IntPtr" : "IntPtr") : "")} __retStructPtr";
+                }
             }
 
             param += ")";
@@ -729,22 +734,6 @@ namespace Generater
             return false;
         }
 
-        public static bool IsBlittableType(TypeReference _type)
-        {
-            if (_type.IsPointer)
-                _type = _type.GetElementType();
-            var type = _type.Resolve();
-
-            if (type == null)
-                return false;
-
-            if (!_type.IsArray && (_type.IsPrimitive || type.IsEnum))
-            {
-                return true;
-            }
-            return false;
-        }
-
         public static bool IsFullValueType(TypeReference _type)
         {
             if (_type.IsPointer)
@@ -773,6 +762,23 @@ namespace Generater
             }
 
             return true;
+        }
+
+
+        public static bool IsBlittableType(TypeReference _type)
+        {
+            if (_type.IsPointer)
+                _type = _type.GetElementType();
+            var type = _type.Resolve();
+
+            if (type == null)
+                return false;
+
+            if (!_type.IsArray && (_type.IsPrimitive || type.IsEnum))
+            {
+                return true;
+            }
+            return false;
         }
 
         public static bool IsUnsafeMethod(MethodDefinition method)

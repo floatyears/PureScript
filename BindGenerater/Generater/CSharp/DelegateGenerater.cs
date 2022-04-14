@@ -17,6 +17,8 @@ namespace Generater
         MethodDefinition setMethod;
         MethodDefinition getMethod;
 
+        bool genProxyDelegate = true;
+
         List<MethodGenerater> methods = new List<MethodGenerater>();
         public DelegateGenerater(EventDefinition e)
         {
@@ -57,9 +59,50 @@ namespace Generater
             if (prop.GetMethod != null)
             {
                 getMethod = prop.GetMethod;
-                //methods.Add(new MethodGenerater(prop.GetMethod));
+                if(genProxyDelegate) //非proxy模式只需要生成简单的get
+                {
+                    methods.Add(new MethodGenerater(prop.GetMethod));
+                }
                 isStatic = prop.GetMethod.IsStatic;
             }
+            isEvent = false;
+        }
+
+        public DelegateGenerater(FieldDefinition field)
+        {
+            genName = field.Name;
+            genType = field.FieldType;
+            declarType = field.DeclaringType;
+
+            if (!field.IsInitOnly)
+            {
+                //TODO:这里构造一个setter 和 getter，field的状态还是在il2cpp层持有
+                var corlib = CSCGenerater.corlib;// AssemblyDefinition.ReadAssembly(Path.Combine(Path.GetDirectoryName(genField.FieldType.Module.FileName), "mscorlib.dll"));
+
+                setMethod = new MethodDefinition("set_" + genName, MethodAttributes.Public, corlib.MainModule.GetType("System", "Void"));
+                setMethod.DeclaringType = field.DeclaringType;
+                setMethod.Body = new Mono.Cecil.Cil.MethodBody(setMethod);
+                setMethod.IsSetter = true;
+                //setMethod.IsPublic = field.IsPublic;
+                setMethod.IsStatic = field.IsStatic;
+                //setMethod.IsCompilerControlled = true;
+                var parameters = setMethod.Parameters;
+                parameters.Add(new ParameterDefinition("value", ParameterAttributes.None, genType));
+                methods.Add(new MethodGenerater(setMethod));
+            }
+
+
+            getMethod = new MethodDefinition("get_" + genName, MethodAttributes.Public, genType);
+            getMethod.DeclaringType = field.DeclaringType;
+            getMethod.Body = new Mono.Cecil.Cil.MethodBody(getMethod);
+            getMethod.IsGetter = true;
+            //getMethod.IsPublic = field.IsPublic;
+            getMethod.IsStatic = field.IsStatic;
+            //getMethod.IsCompilerControlled = true;
+            var parameters1 = getMethod.Parameters;
+            methods.Add(new MethodGenerater(getMethod));
+
+            isStatic = field.IsStatic;
             isEvent = false;
         }
 
@@ -89,6 +132,151 @@ namespace Generater
 		}
              */
         public override void Gen()
+        {
+            if(genProxyDelegate)
+            {
+                _GenWithProxyDelegate();
+            }
+            else
+            {
+                _Gen();
+            }
+        }
+        public void _GenWithProxyDelegate()
+        {
+            var name = genName;
+
+            var flag = isStatic ? "static" : "";
+            flag += isEvent ? " event" : "";
+            var type = genType; // LogCallback(string condition, string stackTrace, LogType type);
+
+            var eventTypeName = TypeResolver.Resolve(type).RealTypeName();
+            if (type.IsGenericInstance)
+                eventTypeName = Utils.GetGenericTypeName(type);
+
+            //public static event LogCallback logMessageReceived
+            CS.Writer.Start($"public {flag} {eventTypeName} {name}");
+
+            if(isEvent)
+            {
+                GenEventMethods(name);
+            }
+            else
+            {
+                GenPropertyMethods(name);
+            }
+
+            CS.Writer.End();
+        }
+
+        private void GenEventMethods(string name)
+        {
+            var type = genType;
+            IMemberDefinition context = null;
+            var targetHandle = isStatic ? "" : "this.Handle, ";
+            if (addMethod != null)
+            {
+                context = addMethod;
+                string _member = DelegateResolver.LocalMamberName(name, addMethod); // _logMessageReceived
+
+                CS.Writer.Start("add");
+                CS.Writer.WriteLine($"bool attach = ({_member} == null)");
+
+                CS.Writer.WriteLine($"{_member} += value");
+
+                CS.Writer.Start("if(attach)");
+
+                if (!isStatic)
+                    CS.Writer.WriteLine($"ObjectStore.RefMember(this,ref {_member}_ref,{_member})"); // resist gc
+
+                var res = TypeResolver.Resolve(type, context).Box(name);
+
+                CS.Writer.WriteLine(Utils.BindMethodName(addMethod, false, false) + $"({targetHandle}{res})");
+                //var value_p = Marshal.GetFunctionPointerForDelegate(logMessageReceivedAction);
+                //MonoBind.UnityEngine_Application_add_logMessageReceived(value_p);
+                CS.Writer.WriteLine("ScriptEngine.CheckException()");
+                CS.Writer.End(); //if(attach)
+                CS.Writer.End(); // add
+            }
+            if (removeMethod != null)
+            {
+                if(context == null) // add/remove share the same box member
+                {
+                    context = removeMethod;
+                }
+
+                string _member = DelegateResolver.LocalMamberName(name, removeMethod); // _logMessageReceived
+
+                CS.Writer.Start("remove");
+                CS.Writer.WriteLine($"{_member} -= value");
+
+                CS.Writer.Start($"if({_member} == null)");
+
+                if (!isStatic)
+                    CS.Writer.WriteLine($"ObjectStore.RefMember(this,ref {_member}_ref,{_member})"); // resist gc
+
+                var res = TypeResolver.Resolve(type, context).Box(name);
+                CS.Writer.WriteLine(Utils.BindMethodName(removeMethod, false, false) + $"({targetHandle}{res})");
+                CS.Writer.WriteLine("ScriptEngine.CheckException()");
+                CS.Writer.End(); //if(attach)
+                CS.Writer.End(); // remove
+            }
+        }
+
+        private void GenPropertyMethods(string name)
+        {
+            var type = genType;
+            IMemberDefinition context = null;
+            
+            if (setMethod != null)
+            {
+                context = setMethod;
+                string _member = DelegateResolver.LocalMamberName(name, setMethod); // _logMessageReceived
+
+                CS.Writer.Start("set");
+                CS.Writer.WriteLine($"bool attach = ({_member} == null)");
+
+                CS.Writer.WriteLine($"{_member} = value");
+
+                CS.Writer.Start("if(attach)");
+
+                if (!isStatic)
+                    CS.Writer.WriteLine($"ObjectStore.RefMember(this,ref {_member}_ref,{_member})"); // resist gc
+
+                var res = TypeResolver.Resolve(type, context).Box(name);
+
+                var targetHandle = isStatic ? "" : "this.Handle, ";
+                CS.Writer.WriteLine(Utils.BindMethodName(setMethod, false, false) + $"({targetHandle}{res})");
+                //var value_p = Marshal.GetFunctionPointerForDelegate(logMessageReceivedAction);
+                //MonoBind.UnityEngine_Application_add_logMessageReceived(value_p);
+                CS.Writer.WriteLine("ScriptEngine.CheckException()");
+                CS.Writer.End(); //if(attach)
+                CS.Writer.End(); // add
+            }
+            if (getMethod != null)
+            {
+                context = getMethod;
+                string _member = DelegateResolver.LocalMamberName(name, getMethod); // _logMessageReceived
+
+                CS.Writer.Start("get");
+                
+
+                var targetHandle = isStatic ? "" : "this.Handle";
+                CS.Writer.WriteLine($"var {name}_p = {Utils.BindMethodName(getMethod, false, false)}({targetHandle})");
+                var res = TypeResolver.Resolve(type, context).Unbox(name);
+                CS.Writer.WriteLine("ScriptEngine.CheckException()");
+                CS.Writer.WriteLine($"{_member} -= {res}"); //
+                CS.Writer.WriteLine($"{_member} += {res}");
+
+                //if (!isStatic)
+                //    CS.Writer.WriteLine($"ObjectStore.RefMember(this,ref {_member}_ref,{_member})"); // resist gc
+
+                CS.Writer.WriteLine($"return {_member}");
+                CS.Writer.End(); //get
+            }
+        }
+
+        public void _Gen()
         {
             var name = genName;
 

@@ -14,6 +14,12 @@ internal static class ObjectStore
     [MethodImpl(MethodImplOptions.InternalCall)]
     private static extern IntPtr GetObjectPtr(object obj);
 
+    [MethodImpl(MethodImplOptions.InternalCall)]
+    public static extern void GetReturnArrayMono(Array src, ref IntPtr dest);
+
+    [MethodImpl(MethodImplOptions.InternalCall)]
+    public static extern void GetReturnStructMono(IntPtr src, ref IntPtr dest, Type structType, int size);
+
     public static IntPtr Store(object obj)
     {
         if (obj == null)

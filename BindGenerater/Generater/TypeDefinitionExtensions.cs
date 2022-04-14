@@ -347,9 +347,29 @@ static internal class TypeDefinitionExtensions
         return td.BaseType;
     }
 
-    public static bool IsStruct(this TypeDefinition type)
+    public static bool IsStruct(this TypeDefinition type, bool includeVoid = true)
     {
-        return type.IsValueType && !type.IsEnum && !type.IsPrimitive;
+        if (!includeVoid)
+        {
+            if(type.IsVoid())
+            {
+                return false;
+            }
+        }
+        return type.IsValueType && !type.IsEnum && !type.IsPrimitive && !type.IsArray;
+
+    }
+
+    public static bool IsStruct(this TypeReference type, bool includeVoid = true)
+    {
+        if (!includeVoid)
+        {
+            if (type.IsVoid())
+            {
+                return false;
+            }
+        }
+        return type.IsValueType && !type.IsPrimitive && !type.IsArray && !type.Resolve().IsEnum;
 
     }
 }

@@ -47,9 +47,16 @@ namespace Generater
 
         public virtual string ReturnType()
         {
-            if(CS.Writer.WriterType == CodeWriter.CodeWriterType.UnityBind)
+            if (CS.Writer.WriterType == CodeWriter.CodeWriterType.UnityBind)
             {
-                return TypeResolver.Resolve(method.ReturnType).TypeName();
+                if (method.ReturnType.IsArray || method.ReturnType.IsStruct(false))
+                {
+                    return "void";
+                } 
+                else
+                {
+                    return TypeResolver.Resolve(method.ReturnType).TypeName();
+                }
             }
             else
             {
@@ -97,14 +104,26 @@ namespace Generater
                 return "";
             }
 
-            var retTypeResolver = TypeResolver.Resolve(method.ReturnType, method, MemberTypeSlot.ReturnType, method.IsCompilerControlled ? MethodTypeSlot.GeneratedDelegate : MethodTypeSlot.GeneratedMethod);
+            var retTypeResolver = TypeResolver.Resolve(method.ReturnType, method, MemberTypeSlot.ReturnType, MethodTypeSlot.GeneratedMethod);
             var retName = retTypeResolver.LocalVariable(name, true);
 
-            if(method.ReturnType != null && method.ReturnType.IsArray)
+            if(method.ReturnType != null)
             {
-                CS.Writer.WriteLine("int arrayLen = 0;");
+                if (method.ReturnType.IsArray)
+                {
+                    retName = null;
+                    CS.Writer.WriteLine("int __arrayLen = -1");
+                    CS.Writer.WriteLine($"IntPtr __retArrayPtr = new IntPtr(0)");
+                }
+                else if(method.ReturnType.IsStruct(false))
+                {
+                    retName = null;
+                    //CS.Writer.WriteLine($"{Utils.FullName(method.ReturnType)} __retStruct");
+                    CS.Writer.WriteLine($"IntPtr __retStructPtr = new IntPtr(0)");
+                }
             }
-            CS.Writer.WriteLine($"{retName} = {Utils.BindMethodName(method)}");
+             
+            CS.Writer.WriteLine($"{(!string.IsNullOrEmpty(retName) ? (retName + " = ") : "")}{Utils.BindMethodName(method)}");
             retName = retTypeResolver.Unbox(name);
             return retName;
         }
@@ -312,7 +331,7 @@ namespace Generater
             var thizObj = GetThizObj();
             var propertyName = method.Name.Substring("get_".Length);
             CS.Writer.WriteLine($"var {name} = {thizObj}.{propertyName}");
-            return TypeResolver.Resolve(method.ReturnType).Box(name);
+            return TypeResolver.Resolve(method.ReturnType, method).Box(name);
         }
     }
 

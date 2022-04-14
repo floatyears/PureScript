@@ -1,5 +1,6 @@
 #include "engine_include.h"
 #include "wrapper.h"
+#include "mono/metadata/exception.h"
 
 MonoObject* MonoGetObject(void* ptr)
 {
@@ -30,7 +31,147 @@ void* Il2cppGetObjectPtr(Il2CppObject * obj)
 	return obj;
 }
 
+void GetReturnArrayMono(Il2CppArray* ilArray, MonoArray** monoArray)
+{
+	*monoArray = get_mono_array(ilArray);
+#if DEBUG
+	platform_log("array length: mono-%d, il2cpp-%d", mono_array_length(*monoArray), il2cpp_array_length(ilArray));
+#endif
+}
 
+void GetReturnStructMono(void* i2struct, MonoObject** monoStruct, Il2CppReflectionType* i2type, int32_t i2size)
+{
+#if DEBUG
+	//注意此接口会有内存分配
+	
+	//char* typename = il2cpp_type_get_name(i2type->type);
+	//platform_log("get return struct, addr: %d, name: %s", i2struct, typename);
+	//il2cpp_free(typename);
+	//platform_log("get return struct, addr: %d, name1: %s", i2struct, il2cpp_class_get_name(il2cpp_object_get_class(i2struct)));
+#endif
+	get_mono_struct_raw(i2struct, monoStruct, i2type, i2size);
+}
+
+MonoObject* GetObjectByPtrMono(void* ptr)
+{
+	return (MonoObject*)ptr;
+}
+
+static char il2cpp_exception[1024];
+static bool caught_il2cpp = 0;
+static char mono_exception[1024];
+static bool caught_mono = 0;
+
+//note: this function is neccessary, the function stack is in il2cpp at this time
+//      should raise mono exception when back to mono
+void CatchIL2CppException(Il2CppException* exception)
+{
+	if (exception == NULL)
+	{
+		platform_log("il2cpp exception is null");
+		return;
+	}
+
+	Il2CppString* message = (Il2CppString*)il2cpp_exception_property((Il2CppObject*)exception, "get_Message", 1);
+	Il2CppString* trace = (Il2CppString*)il2cpp_exception_property((Il2CppObject*)exception, "get_StackTrace", 1);
+
+	caught_il2cpp = 1;
+	MonoString* _message = get_mono_string(message);
+	char* _msg = mono_string_to_utf8(_message);
+	sprintf_s(il2cpp_exception, sizeof(il2cpp_exception), "%s", _msg);
+
+	mono_free(_msg);
+	if (trace != NULL)
+	{
+		MonoString* _stack = get_mono_string(trace);
+		char* _stk = mono_string_to_utf8(_stack);
+#if DEBUG
+		platform_log("il2cpp exception stack: %s", _stk);
+#endif
+		mono_free(_stk);
+	}
+	//MonoString* _stack = get_mono_string(trace);
+}
+
+
+void RaiseMonoExceptionFromIL2Cpp()
+{
+	if (caught_il2cpp)
+	{
+		MonoException* exc = mono_exception_from_name_msg(mono_get_corlib(), "System", "Exception", il2cpp_exception);
+		caught_il2cpp = 0;
+		if (exc != NULL)
+		{
+			mono_raise_exception(exc);
+		}
+		else
+		{
+			platform_log("raise mono exception failed: %s", il2cpp_exception);
+		}
+	}
+}
+
+void CatchMonoException(MonoException* exception)
+{
+	//raise_mono_exception_runtime(msg);
+	if (exception == NULL)
+	{
+		platform_log("mono exception is null");
+		return;
+	}
+	//mono_exception_property(exception, "");
+	MonoString* message = (MonoString*)mono_exception_property((MonoObject*)exception, "get_Message", 1);
+	MonoString* trace = (MonoString*)mono_exception_property((MonoObject*)exception, "get_StackTrace", 1);
+
+	caught_mono = 1;
+	char* msgStr = mono_string_to_utf8(message);
+	char* traceStr = mono_string_to_utf8(trace);
+	sprintf_s(mono_exception, sizeof(mono_exception), "%s", msgStr);
+
+	mono_free(msgStr);
+#if DEBUG
+	platform_log("mono exception: %s", mono_exception);
+#endif
+	if (traceStr != NULL)
+	{
+#if DEBUG
+		platform_log("il2cpp exception stack: %s", traceStr);
+#endif
+		mono_free(traceStr);
+	}
+
+}
+
+void RaiseIL2CppExceptionFromMono()
+{
+	if (caught_mono)
+	{
+		Il2CppException* exc = il2cpp_exception_from_name_msg(il2cpp_get_corlib(), "System", "Exception", mono_exception);
+		caught_mono = 0;
+		il2cpp_raise_exception(exc);
+	}
+}
+
+#if __ANDROID__
+#include <android/asset_manager.h>
+#include <jni.h>
+#endif
+MonoArray* GetFileBinaryData(MonoObject* this, MonoString* path, void* handle)
+{
+	int size = 0;
+	
+#if __ANDROID__
+	//JavaVM* vm = GetJavaVm();
+	//Assert(vm);
+	//JNIEnv* env;
+	//int ret = vm->AttachCurrentThread(&env, 0);
+	//if (ret == 0)
+	//{
+	//	//env
+	//}
+#endif
+	MonoArray* data = mono_array_new(g_domain, mono_get_byte_class(), size);
+}
 
 /*
 MonoObject* NewObject(MonoReflectionType* type)
@@ -340,8 +481,18 @@ void mono_register_icall(void)
 	il2cpp_add_internal_call("ObjectStore::GetObject", (Il2CppMethodPointer)Il2cppGetObject);
 	il2cpp_add_internal_call("ObjectStore::GetObjectPtr", (Il2CppMethodPointer)Il2cppGetObjectPtr);
 
+	il2cpp_add_internal_call("ObjectStore::GetReturnArrayMono", (Il2CppMethodPointer)GetReturnArrayMono);
+	il2cpp_add_internal_call("ObjectStore::GetReturnStructMono", (Il2CppMethodPointer)GetReturnStructMono);
+
+	il2cpp_add_internal_call("PureScript.ScriptEngine::OnException", (Il2CppMethodPointer)CatchIL2CppException);
+	il2cpp_add_internal_call("PureScript.ScriptEngine::CheckException", (Il2CppMethodPointer)RaiseIL2CppExceptionFromMono);
+
 	mono_add_internal_call("ObjectStore::GetObject", MonoGetObject);
 	mono_add_internal_call("ObjectStore::StoreObject", MonoStoreObject);
+	mono_add_internal_call("ObjectStore::GetObjectByPtrMono", GetObjectByPtrMono);
+
+	mono_add_internal_call("PureScript.Mono.ScriptEngine::OnException", (Il2CppMethodPointer)CatchMonoException);
+	mono_add_internal_call("PureScript.Mono.ScriptEngine::CheckException", (Il2CppMethodPointer)RaiseMonoExceptionFromIL2Cpp);
 
 	//Aono_add_internal_call("UnityEngine.GameObject::CreatePrimitive", (void*)UnityEngine_GameObject_CreatePrimitive);
 	//Aono_add_internal_call("UnityEngine.DebugLogHandler::Internal_Log", (void*)UnityEngine_DebugLogHandler_Internal_Log);

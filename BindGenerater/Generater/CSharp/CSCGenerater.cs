@@ -192,6 +192,10 @@ namespace Generater
                     config.WriteLine($"-r:{Path.Combine(DllRefDir, refFile)}");
                 foreach (var define in defineSet)
                     config.WriteLine($"-define:{define}");
+                if(true)
+                {
+                    config.WriteLine($"-debug:embedded");
+                }
 
                 var netstandFile = Path.Combine(OutDir, "netstandard.dll");
                 if(File.Exists(netstandFile))

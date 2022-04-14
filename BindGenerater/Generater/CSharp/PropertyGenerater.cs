@@ -44,7 +44,7 @@ namespace Generater
         public PropertyGenerater(FieldDefinition field)
         {//TODO: PropertyGenerater(FieldDefinition field)
             genField = field;
-            if(!Utils.Filter(genField.FieldType) || (Utils.IsDelegate(genField.DeclaringType) && !genField.IsStatic)) //delegate是作为函数指针传递，mono只能传递static的delegate到unmanaged code
+            if(!Utils.Filter(genField.FieldType) || Utils.IsDelegate(genField.DeclaringType)) //delegate是作为函数指针传递，mono只能传递static的delegate到unmanaged code
                 return;
 
             var genName = field.Name;
