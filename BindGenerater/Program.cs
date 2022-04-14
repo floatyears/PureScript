@@ -36,11 +36,19 @@ namespace BindGenerater
             All,
         }
 
+        public enum TargetPlatform
+        {
+            Android,
+            iOS,
+            StandaloneWindows,
+            StandaloneWindows64,
+        }
 
         static BindOptions options;
 
         public static string ToolsetPath;
         public static BindTarget Mode;
+        public static TargetPlatform Platform;
 
         static int Main(string[] args)
         {
@@ -75,7 +83,10 @@ namespace BindGenerater
                 Mode = (BindTarget)Enum.Parse(typeof(BindTarget), args[2]);
             else
                 Mode = BindTarget.All;
-
+            if(args.Length >= 4)
+                Platform = (TargetPlatform)Enum.Parse(typeof(TargetPlatform), args[3]);
+            else
+                Platform = TargetPlatform.Android;
 
             Console.WriteLine("start binder..");
             Directory.SetCurrentDirectory(Path.GetDirectoryName(configFile));
@@ -86,6 +97,7 @@ namespace BindGenerater
             string managedDir = Path.Combine(options.ScriptEngineDir, "Managed");
             string orignDir = Path.Combine(options.ScriptEngineDir, "Managed_orign");
             string adapterDir = Path.Combine(options.ScriptEngineDir, "Adapter");
+            string platformLibDir = Path.Combine(options.ScriptEngineDir, "Tools");
 
             Utils.CopyDir(orignDir, managedDir, ".dll");
             ReplaceMscorlib("lib", managedDir);
@@ -157,7 +169,7 @@ namespace BindGenerater
 
         public static void ReplaceMscorlib(string libDir, string outDir)
         {
-            var srcDir = Path.Combine(libDir, Utils.IsWin32() ? "win32" : "iOS");
+            var srcDir = Path.Combine(libDir, Platform == TargetPlatform.Android ? "Android" : (Platform == TargetPlatform.iOS ? "iOS" : "win32"));// Path.Combine(libDir, Utils.IsWin32() ? "win32" : "iOS");
 
             DirectoryInfo dir = new DirectoryInfo(srcDir);
 
