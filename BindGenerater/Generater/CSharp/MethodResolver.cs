@@ -55,7 +55,7 @@ namespace Generater
                 } 
                 else
                 {
-                    return TypeResolver.Resolve(method.ReturnType).TypeName();
+                    return TypeResolver.Resolve(method.ReturnType).TypeName(true);
                 }
             }
             else
@@ -84,7 +84,7 @@ namespace Generater
 		/// return resObj;
         /// </summary>
         /// <returns> resObj </returns>
-        public virtual string Call(string name)
+        public virtual string MonoImplement(string name)
         {
             foreach (var param in method.Parameters)
             {
@@ -124,7 +124,7 @@ namespace Generater
             }
              
             CS.Writer.WriteLine($"{(!string.IsNullOrEmpty(retName) ? (retName + " = ") : "")}{Utils.BindMethodName(method)}");
-            retName = retTypeResolver.Unbox(name);
+            retName = retTypeResolver.UnboxAfterMarhsal(name);
             return retName;
         }
 
@@ -135,7 +135,7 @@ namespace Generater
 		/// return value_h;
         /// </summary>
         /// <returns> value_h </returns>
-        public virtual string Implement(string name)
+        public virtual string IL2CppImplement(string name)
         {
             var thizObj = GetThizObj();
 
@@ -183,7 +183,7 @@ namespace Generater
             var lastP = method.Parameters.LastOrDefault();
             foreach (var p in method.Parameters)
             {
-                var value = TypeResolver.Resolve(p.ParameterType, method, MemberTypeSlot.Parameter).Unbox(p.Name, true);
+                var value = TypeResolver.Resolve(p.ParameterType, method, MemberTypeSlot.Parameter).UnboxAfterMarhsal(p.Name, true);
                 if (p.IsIn)
                     value = value.Replace("ref ", "in ");
 
@@ -193,7 +193,7 @@ namespace Generater
             }
             CS.Writer.Write(");");
 
-            return TypeResolver.Resolve(method.ReturnType).Box(name);
+            return TypeResolver.Resolve(method.ReturnType).BoxBeforeMarshal(name);
         }
 
         protected string GetThizObj()
@@ -201,7 +201,7 @@ namespace Generater
             if (method.IsStatic)
                 return method.DeclaringType.FullName.Replace("/",".");
             else
-                return TypeResolver.Resolve(method.DeclaringType).Unbox("thiz", true);
+                return TypeResolver.Resolve(method.DeclaringType).UnboxAfterMarhsal("thiz", true);
         }
     }
 
@@ -227,7 +227,7 @@ namespace Generater
 		/// return valueHandle;
         /// </summary>
         /// <returns> valueHandle </returns>
-        public override string Implement(string name)
+        public override string IL2CppImplement(string name)
         {
 
             if(!IsValueTypeConstructor)
@@ -236,7 +236,7 @@ namespace Generater
                 var lastP = method.Parameters.LastOrDefault();
                 foreach (var p in method.Parameters)
                 {
-                    var value = TypeResolver.Resolve(p.ParameterType, method).Unbox(p.Name, true);
+                    var value = TypeResolver.Resolve(p.ParameterType, method, MemberTypeSlot.Parameter).UnboxAfterMarhsal(p.Name, true);
                     if (p.IsIn)
                         value = value.Replace("ref ", "in ");
 
@@ -281,7 +281,7 @@ namespace Generater
                 var lastP = method.Parameters.LastOrDefault();
                 foreach (var p in method.Parameters)
                 {
-                    CS.Writer.Write(TypeResolver.Resolve(p.ParameterType).Unbox(p.Name, true));
+                    CS.Writer.Write(TypeResolver.Resolve(p.ParameterType, method, MemberTypeSlot.Parameter).UnboxAfterMarhsal(p.Name, true));
                     if (lastP != p)
                         CS.Writer.Write(",");
                 }
@@ -303,12 +303,12 @@ namespace Generater
 		/// thizObj.layer = value;
         /// </summary>
         /// <returns> valueHandle </returns>
-        public override string Implement(string name)
+        public override string IL2CppImplement(string name)
         {
             name = "value";
             var thizObj = GetThizObj();
             var propertyName = method.Name.Substring("set_".Length);
-            var valueName = TypeResolver.Resolve(method.Parameters.First().ParameterType).Unbox(name, true);
+            var valueName = TypeResolver.Resolve(method.Parameters.First().ParameterType, method, MemberTypeSlot.Parameter).UnboxAfterMarhsal(name, true);
             CS.Writer.WriteLine($"{thizObj}.{propertyName} = {valueName}");
             return "";
         }
@@ -326,12 +326,12 @@ namespace Generater
 		/// return value;
         /// </summary>
         /// <returns> value </returns>
-        public override string Implement(string name)
+        public override string IL2CppImplement(string name)
         {
             var thizObj = GetThizObj();
             var propertyName = method.Name.Substring("get_".Length);
             CS.Writer.WriteLine($"var {name} = {thizObj}.{propertyName}");
-            return TypeResolver.Resolve(method.ReturnType, method).Box(name);
+            return TypeResolver.Resolve(method.ReturnType, method).BoxBeforeMarshal(name);
         }
     }
 
@@ -357,7 +357,7 @@ namespace Generater
         UnityEngine.Application.logMessageReceived += OnlogMessageReceived;
 	}
              */
-        public override string Implement(string name)
+        public override string IL2CppImplement(string name)
         {
             
             var isStatic = method.IsStatic;
@@ -366,7 +366,7 @@ namespace Generater
             name = "value";
             var thizObj = GetThizObj();
 
-            var res = TypeResolver.Resolve(type,method).Unbox(name);
+            var res = TypeResolver.Resolve(type,method).UnboxAfterMarhsal(name);
 
             //CS.Writer.WriteLine($"{uniqueName} = Marshal.GetDelegateForFunctionPointer<{eventDeclear}>({name}_p)");
 
@@ -388,14 +388,14 @@ namespace Generater
             uniqueName = method.DeclaringType.Name.Replace("/", "_") + "_" + propertyName;
         }
         
-        public override string Implement(string name)
+        public override string IL2CppImplement(string name)
         {
             name = "value";
             var thizObj = GetThizObj();
             //var isStatic = method.IsStatic;
 
             var type = method.Parameters.FirstOrDefault().ParameterType;
-            var res = TypeResolver.Resolve(type,method).Unbox(name);
+            var res = TypeResolver.Resolve(type,method).UnboxAfterMarhsal(name);
 
             var actionTarget = res;// isStatic ? $"On{uniqueName}" : $"{thizObj}.On{uniqueName}";
             CS.Writer.WriteLine($"{thizObj}.{propertyName} -= {actionTarget}");
@@ -437,10 +437,10 @@ namespace Generater
             return false;
         }
 
-        public override string Call(string name)
+        public override string MonoImplement(string name)
         {
             if(eventType == EventType.none)
-                return base.Call(name);
+                return base.MonoImplement(name);
 
             var firstParam = method.Parameters.FirstOrDefault();
             string _member = DelegateResolver.LocalMamberName(firstParam.Name, method);
@@ -459,7 +459,7 @@ namespace Generater
                 CS.Writer.Start($"if({_member} == null)");
             }
 
-            res = base.Call(name);
+            res = base.MonoImplement(name);
 
             if (!method.IsStatic)
                 CS.Writer.WriteLine($"ObjectStore.RefMember(this,ref {_member}_ref,{_member})"); // resist gc

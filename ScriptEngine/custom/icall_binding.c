@@ -24,14 +24,26 @@ void* MonoStoreObject(MonoObject* obj, void* ptr)
 
 Il2CppObject* Il2cppGetObject(void* ptr)
 {
+#if DEBUG
+	if (ptr == NULL)
+	{
+		platform_log("il2cpp object is null");
+	}
+#endif
 	return (Il2CppObject *)ptr;
 }
 void* Il2cppGetObjectPtr(Il2CppObject * obj)
 {
+#if DEBUG
+	if (obj == NULL)
+	{
+		platform_log("il2cpp object is null when convert to IntPtr");
+	}
+#endif
 	return obj;
 }
 
-void GetReturnArrayMono(Il2CppArray* ilArray, MonoArray** monoArray)
+void GetReturnArrayToMono(Il2CppArray* ilArray, MonoArray** monoArray)
 {
 	*monoArray = get_mono_array(ilArray);
 #if DEBUG
@@ -39,7 +51,7 @@ void GetReturnArrayMono(Il2CppArray* ilArray, MonoArray** monoArray)
 #endif
 }
 
-void GetReturnStructMono(void* i2struct, MonoObject** monoStruct, Il2CppReflectionType* i2type, int32_t i2size)
+void GetReturnStructToMono(void* i2struct, MonoObject** monoStruct, Il2CppReflectionType* i2type, int32_t i2size)
 {
 #if DEBUG
 	//注意此接口会有内存分配
@@ -52,9 +64,81 @@ void GetReturnStructMono(void* i2struct, MonoObject** monoStruct, Il2CppReflecti
 	get_mono_struct_raw(i2struct, monoStruct, i2type, i2size);
 }
 
-MonoObject* GetObjectByPtrMono(void* ptr)
+Il2CppObject* GetMonoObjectByPtr(void* ptr)
 {
 	return (MonoObject*)ptr;
+}
+
+Il2CppObject* ConvertObjectMonoToIL2Cpp(MonoObject* monoObj)
+{
+	if (monoObj == NULL)
+	{
+		return NULL;
+	}
+	MonoClass* klass = mono_object_get_class(monoObj);
+	MonoType* type = mono_class_get_type(klass);
+	if (is_primitive(type) || type->type == MONO_TYPE_ENUM)
+	{
+		Il2CppClass* i2class = get_il2cpp_class(klass);
+#if DEBUG
+		platform_log("primitive type %s size: mono-%d, il2cpp-%d", mono_class_get_name(klass), mono_class_instance_size(klass), i2class != NULL ? il2cpp_class_instance_size(i2class) : -1);
+#endif
+		if (i2class == NULL)
+		{
+			return NULL;
+		}
+		Il2CppObject* i2obj = il2cpp_object_new(i2class);
+		//il2cpp_gc_wbarrier_set_field(i2obj, *((char*)i2obj + sizeof(Il2CppObject)), (char*)monoObj + sizeof(MonoObject));
+		memcpy((char*)i2obj + sizeof(Il2CppObject), (char*)monoObj + sizeof(MonoObject), il2cpp_class_instance_size(i2class) - sizeof(Il2CppObject));
+		return i2obj;
+	}
+	else if (type->type == MONO_TYPE_STRING) //string类型
+	{
+		Il2CppString* str = get_il2cpp_string((MonoString*)monoObj);
+		return (Il2CppObject*)str;
+	}
+	else if (is_struct_type(type))
+	{
+		Il2CppObject** i2obj = NULL;
+		get_il2cpp_struct(monoObj, i2obj, mono_type_get_object(g_domain, type), mono_class_value_size(klass, NULL));
+		return i2obj; //struct是by value形式传递，所以不用bind
+	}
+	else if (type->type == MONO_TYPE_SZARRAY) //
+	{
+		//TODO: to implement
+		MonoClass* eklass = mono_class_get_element_class(klass);
+		Il2CppArray* i2Array = get_il2cpp_array((MonoArray*)monoObj);
+		if (i2Array != NULL)
+		{
+			bind_mono_il2cpp_object(monoObj, (Il2CppObject*)i2Array);
+		}
+		return (Il2CppObject*)i2Array;
+	}
+	else if(type->type == MONO_TYPE_CLASS)
+	{
+		if (mono_class_is_subclass_of(klass, get_wobject_class(), 0))
+		{
+			Il2CppClass* i2class = get_il2cpp_class(klass);
+			WObjectHead* monoHead = (WObjectHead*)(monoObj);
+			if (monoHead->objectPtr == NULL)
+			{
+				platform_log("get il2cpp object from mono fail, type:%s", mono_class_get_name(klass));
+				return NULL;
+				//return NULL;
+			}
+			return get_il2cpp_object_with_ptr(monoHead->objectPtr);
+		}
+		else
+		{
+			platform_log("array element class must be subclass of WObject: %s", mono_class_get_name(klass));
+		}
+	}
+	else
+	{
+		platform_log("convert object mono to il2cpp, type not support: %s", mono_class_get_name(klass));
+		return NULL;
+	}
+	
 }
 
 static char il2cpp_exception[1024];
@@ -481,18 +565,21 @@ void mono_register_icall(void)
 	il2cpp_add_internal_call("ObjectStore::GetObject", (Il2CppMethodPointer)Il2cppGetObject);
 	il2cpp_add_internal_call("ObjectStore::GetObjectPtr", (Il2CppMethodPointer)Il2cppGetObjectPtr);
 
-	il2cpp_add_internal_call("ObjectStore::GetReturnArrayMono", (Il2CppMethodPointer)GetReturnArrayMono);
-	il2cpp_add_internal_call("ObjectStore::GetReturnStructMono", (Il2CppMethodPointer)GetReturnStructMono);
+	il2cpp_add_internal_call("ObjectStore::GetReturnArrayToMono", (Il2CppMethodPointer)GetReturnArrayToMono);
+	il2cpp_add_internal_call("ObjectStore::GetReturnStructToMono", (Il2CppMethodPointer)GetReturnStructToMono);
 
 	il2cpp_add_internal_call("PureScript.ScriptEngine::OnException", (Il2CppMethodPointer)CatchIL2CppException);
 	il2cpp_add_internal_call("PureScript.ScriptEngine::CheckException", (Il2CppMethodPointer)RaiseIL2CppExceptionFromMono);
 
 	mono_add_internal_call("ObjectStore::GetObject", MonoGetObject);
 	mono_add_internal_call("ObjectStore::StoreObject", MonoStoreObject);
-	mono_add_internal_call("ObjectStore::GetObjectByPtrMono", GetObjectByPtrMono);
+	mono_add_internal_call("ObjectStore::GetMonoObjectByPtr", GetMonoObjectByPtr);
 
-	mono_add_internal_call("PureScript.Mono.ScriptEngine::OnException", (Il2CppMethodPointer)CatchMonoException);
-	mono_add_internal_call("PureScript.Mono.ScriptEngine::CheckException", (Il2CppMethodPointer)RaiseMonoExceptionFromIL2Cpp);
+	mono_add_internal_call("ObjectStore::ConvertObjectMonoToIL2Cpp", ConvertObjectMonoToIL2Cpp);
+
+	mono_add_internal_call("PureScript.Mono.ScriptEngine::OnException", CatchMonoException);
+	mono_add_internal_call("PureScript.Mono.ScriptEngine::CheckException", RaiseMonoExceptionFromIL2Cpp);
+
 
 	//Aono_add_internal_call("UnityEngine.GameObject::CreatePrimitive", (void*)UnityEngine_GameObject_CreatePrimitive);
 	//Aono_add_internal_call("UnityEngine.DebugLogHandler::Internal_Log", (void*)UnityEngine_DebugLogHandler_Internal_Log);

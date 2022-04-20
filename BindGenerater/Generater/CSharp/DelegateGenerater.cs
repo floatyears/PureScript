@@ -189,7 +189,7 @@ namespace Generater
                 if (!isStatic)
                     CS.Writer.WriteLine($"ObjectStore.RefMember(this,ref {_member}_ref,{_member})"); // resist gc
 
-                var res = TypeResolver.Resolve(type, context).Box(name);
+                var res = TypeResolver.Resolve(type, context).BoxBeforeMarshal(name);
 
                 CS.Writer.WriteLine(Utils.BindMethodName(addMethod, false, false) + $"({targetHandle}{res})");
                 //var value_p = Marshal.GetFunctionPointerForDelegate(logMessageReceivedAction);
@@ -215,7 +215,7 @@ namespace Generater
                 if (!isStatic)
                     CS.Writer.WriteLine($"ObjectStore.RefMember(this,ref {_member}_ref,{_member})"); // resist gc
 
-                var res = TypeResolver.Resolve(type, context).Box(name);
+                var res = TypeResolver.Resolve(type, context).BoxBeforeMarshal(name);
                 CS.Writer.WriteLine(Utils.BindMethodName(removeMethod, false, false) + $"({targetHandle}{res})");
                 CS.Writer.WriteLine("ScriptEngine.CheckException()");
                 CS.Writer.End(); //if(attach)
@@ -243,7 +243,7 @@ namespace Generater
                 if (!isStatic)
                     CS.Writer.WriteLine($"ObjectStore.RefMember(this,ref {_member}_ref,{_member})"); // resist gc
 
-                var res = TypeResolver.Resolve(type, context).Box(name);
+                var res = TypeResolver.Resolve(type, context).BoxBeforeMarshal(name);
 
                 var targetHandle = isStatic ? "" : "this.Handle, ";
                 CS.Writer.WriteLine(Utils.BindMethodName(setMethod, false, false) + $"({targetHandle}{res})");
@@ -263,7 +263,7 @@ namespace Generater
 
                 var targetHandle = isStatic ? "" : "this.Handle";
                 CS.Writer.WriteLine($"var {name}_p = {Utils.BindMethodName(getMethod, false, false)}({targetHandle})");
-                var res = TypeResolver.Resolve(type, context).Unbox(name);
+                var res = TypeResolver.Resolve(type, context).UnboxAfterMarhsal(name);
                 CS.Writer.WriteLine("ScriptEngine.CheckException()");
                 CS.Writer.WriteLine($"{_member} -= {res}"); //
                 CS.Writer.WriteLine($"{_member} += {res}");
@@ -315,7 +315,7 @@ namespace Generater
                 if (!isStatic)
                     CS.Writer.WriteLine($"ObjectStore.RefMember(this,ref {_member}_ref,{_member})"); // resist gc
 
-                var res = TypeResolver.Resolve(type, context).Box(name);
+                var res = TypeResolver.Resolve(type, context).BoxBeforeMarshal(name);
                 
                 CS.Writer.WriteLine(Utils.BindMethodName(method, false, false) + $"({targetHandle}{res})");
                 //var value_p = Marshal.GetFunctionPointerForDelegate(logMessageReceivedAction);
@@ -339,7 +339,7 @@ namespace Generater
                 if (!isStatic)
                     CS.Writer.WriteLine($"ObjectStore.RefMember(this,ref {_member}_ref,{_member})"); // resist gc
 
-                var res = TypeResolver.Resolve(type, context).Box(name);
+                var res = TypeResolver.Resolve(type, context).BoxBeforeMarshal(name);
                 CS.Writer.WriteLine(Utils.BindMethodName(removeMethod, false, false) + $"({targetHandle}{res})");
                 CS.Writer.WriteLine("ScriptEngine.CheckException()");
                 CS.Writer.End(); //if(attach)

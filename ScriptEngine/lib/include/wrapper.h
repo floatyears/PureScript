@@ -19,6 +19,7 @@ extern "C" {
 	Il2CppObject* create_il2cpp_enumerator_wrapper(MonoObject* mono);
 	Il2CppClass* get_enumerator_wrapper_class();
 	MonoClass* get_coroutine_class();
+	MonoClass* get_wobject_class();
 
 	//MonoObject* create_monobehaviour(MonoClass * kclass, Il2CppObject * il2cppObj);
 

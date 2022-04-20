@@ -44,7 +44,10 @@ public static class ObjectStore
     private static extern object OnException(Exception e);
     
     [MethodImpl(MethodImplOptions.InternalCall)]
-    public static extern object GetObjectByPtrMono(IntPtr ptr);
+    public static extern object GetMonoObjectByPtr(IntPtr ptr);
+
+    [MethodImpl(MethodImplOptions.InternalCall)]
+    public static extern IntPtr ConvertObjectMonoToIL2Cpp(object obj);
     
 /*
     public static int Store(object obj)

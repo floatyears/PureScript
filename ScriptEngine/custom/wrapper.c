@@ -65,7 +65,6 @@ Il2CppObject* create_il2cpp_enumerator_wrapper(MonoObject* mono)
 	call_wrapper_init(il2cpp,mono);
 	return il2cpp;
 }
-
 Il2CppClass* get_enumerator_wrapper_class()
 {
 	static Il2CppClass* enumerator_wrapper_class;
@@ -120,6 +119,18 @@ MonoClass* get_AsyncOperation_class()
 
 	return kclass;
 }
+
+MonoClass* get_wobject_class()
+{
+	static MonoClass* wobject_class;
+	if (wobject_class == NULL)
+	{
+		wobject_class = mono_search_class("Adapter.wrapper.dll", "", "WObject");
+		//il2cpp_add_flag(enumerator_wrapper_class, CLASS_MASK_WRAPPER);
+	}
+	return wobject_class;
+}
+
 
 Il2CppObject* invoke_enumerator_current(Il2CppObject* obj, void* methodPtr)
 {

@@ -85,7 +85,7 @@ namespace Generater
             }
             else
             {
-                var res = MethodResolver.Resolve(genMethod).Call("ret");
+                var res = MethodResolver.Resolve(genMethod).MonoImplement("ret");
                 writer.WriteLine("ScriptEngine.CheckException()");
                 writer.WriteLine($"return {res}");
             }
@@ -115,7 +115,7 @@ namespace Generater
             }
             else
             {
-                MethodResolver.Resolve(genMethod).Call("");
+                MethodResolver.Resolve(genMethod).MonoImplement("");
                 writer.WriteLine("ScriptEngine.CheckException()");
             }
                 
@@ -131,7 +131,7 @@ namespace Generater
             }
             else
             {
-                MethodResolver.Resolve(genMethod).Call("");
+                MethodResolver.Resolve(genMethod).MonoImplement("");
                 writer.WriteLine("ScriptEngine.CheckException()");
             }
                 
@@ -147,7 +147,7 @@ namespace Generater
             }
             else
             {
-                MethodResolver.Resolve(genMethod).Call("");
+                MethodResolver.Resolve(genMethod).MonoImplement("");
                 writer.WriteLine("ScriptEngine.CheckException()");
             }
             writer.End();
@@ -194,7 +194,7 @@ namespace Generater
             }
             else
             {
-                var res = MethodResolver.Resolve(genMethod).Call("res");
+                var res = MethodResolver.Resolve(genMethod).MonoImplement("res");
                 writer.WriteLine("ScriptEngine.CheckException()");
                 writer.WriteLine($"return {res}");
             }

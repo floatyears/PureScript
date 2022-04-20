@@ -72,11 +72,11 @@ namespace Generater
             {
                 if (declear)
                 {
-                    param +=  TypeResolver.Resolve(p.ParameterType).Paramer(p.Name) + (p == lastP ? "" : ", ");
+                    param +=  TypeResolver.Resolve(p.ParameterType, method, MemberTypeSlot.Parameter).Paramer(p.Name, true) + (p == lastP ? "" : ", ");
                 }
                 else
                 {
-                    param += TypeResolver.Resolve(p.ParameterType, method, MemberTypeSlot.Parameter).Box(p.Name) + (p == lastP ? "" : ", ");
+                    param += TypeResolver.Resolve(p.ParameterType, method, MemberTypeSlot.Parameter).BoxBeforeMarshal(p.Name) + (p == lastP ? "" : ", ");
                 }
 
             }
@@ -645,7 +645,7 @@ namespace Generater
 
         static Dictionary<string, string> delegateSignDic = new Dictionary<string, string>();
 
-        public static string GetDelegateWrapTypeName(TypeReference type, TypeReference delegateTarget)
+        public static string GetDelegateWrapTypeName(TypeReference type, TypeReference delegateTarget, bool forMarshal = false)
         {
             var paramTpes = Utils.GetDelegateParams(type, delegateTarget, out var returnType);
 
@@ -653,7 +653,7 @@ namespace Generater
             for (int i = 0; i < paramTpes.Count; i++)
             {
                 var p = paramTpes[i];
-                paramDeclear += $"{TypeResolver.Resolve(p).TypeName()} arg{i} "; //TODO: TypeResolver.Resolve(p).Paramer($"arg{i}");
+                paramDeclear += $"{TypeResolver.Resolve(p, null, MemberTypeSlot.Parameter).TypeName(forMarshal)} arg{i} "; //TODO: TypeResolver.Resolve(p).Paramer($"arg{i}");
                 if (i != paramTpes.Count - 1)
                     paramDeclear += ",";
             }
@@ -661,10 +661,10 @@ namespace Generater
 
             var retTypeResolver = returnType != null ? TypeResolver.Resolve(returnType, null, MemberTypeSlot.ReturnType, MethodTypeSlot.GeneratedMethod) : null;
             //il2cpp内的定义仍然保持原样，因为在生成cpp文件时，非blittable都以指针形式存在
-            var returnName = returnType == null ? "void" : retTypeResolver.TypeName();
+            var returnName = returnType == null ? "void" : retTypeResolver.TypeName(forMarshal);
             //mono内的delegate，如果返回值是非blittable类型，必须要定义为IntPtr，避免Marshal将返回值释放掉，返回空指针。
-            var returnNameWrap = returnType == null ? "void" : retTypeResolver.TypeName(true); 
-            var sign = type.FullName + paramDeclear + returnName;
+            //var returnNameWrap = returnType == null ? "void" : retTypeResolver.TypeName(true); 
+            var sign = type.FullName + paramDeclear + returnName + (forMarshal ? "_forMarshal" : "");
             var delegateName = "";
             if(!delegateSignDic.TryGetValue(sign,out delegateName))
             {
@@ -673,9 +673,9 @@ namespace Generater
             }
             
             var define = $"public delegate {returnName} {delegateName} {paramDeclear}";
-            var wrapDefine = $"public delegate {returnNameWrap} {delegateName} {paramDeclear}";
+            //var wrapDefine = $"public delegate {returnNameWrap} {delegateName} {paramDeclear}";
 
-            GenerateBindings.AddDelegateDefine(define, wrapDefine);
+            GenerateBindings.AddDelegateDefine(define, define);
 
             return delegateName;
         }

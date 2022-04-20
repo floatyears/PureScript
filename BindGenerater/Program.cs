@@ -231,7 +231,7 @@ namespace BindGenerater
                     CS.Writer.Start("LinePointTest");
                     CS.Writer.WriteLine("aa 1");
                     CS.Writer.WriteLine("aa 2");
-                    var resolverRes = new ClassResolver(null, new MemberTypeContext(MemberTypeSlot.None, MethodTypeSlot.None, null)).Box("testObj");
+                    var resolverRes = new ClassResolver(null, new MemberTypeContext(MemberTypeSlot.None, MethodTypeSlot.None, null)).BoxBeforeMarshal("testObj");
                     CS.Writer.WriteLine($"return {resolverRes}");
                     CS.Writer.End();
                 }

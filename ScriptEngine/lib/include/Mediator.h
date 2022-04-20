@@ -3,6 +3,7 @@
 
 #include "runtime.h"
 #include "il2cpp_support.h"
+#include "wrapper.h"
 
 #define CLASS_MASK_UNITY_NATIVE (1<<2)
 #define CLASS_MASK_WRAPPER (1<<3)
@@ -42,6 +43,12 @@ extern "C"
 		const Il2CppType* type;
 	} Il2CppReflectionType;
 
+
+	typedef struct _MonoReflectionType {
+		MonoObject object;
+		MonoType* type;
+	} _MonoReflectionType;
+
 	struct _MonoType {
 		union {
 			MonoClass* klass; /* for VALUETYPE and CLASS */
@@ -73,11 +80,34 @@ extern "C"
 	void copy_array_i2_mono(Il2CppArray* i2_array, MonoArray* mono_array);
 	void copy_il2cpp_struct_to_mono(Il2CppObject* il2cppObj, MonoObject* monoObj);
 	void copy_il2cpp_struct_to_mono_raw(void* il2cppObj, MonoObject* monoObj);
+	void copy_mono_struct_to_il2cpp(MonoObject* monoObj, Il2CppObject* il2cppObj);
+	void copy_mono_struct_to_il2cpp_raw(void* monoData, Il2CppObject* il2cppObj);
 	void get_mono_struct(Il2CppObject* i2struct, MonoObject** monoStruct, Il2CppReflectionType* i2type, int32_t i2size);
 	void get_mono_struct_raw(void* i2struct, MonoObject** monoStruct, Il2CppReflectionType* i2type, int32_t i2size);
-	bool inline is_primitive(MonoType* type);
-	bool inline is_struct(MonoClass* type);
-	bool inline is_struct_type(MonoType* klass);
+	void get_il2cpp_struct(MonoObject* monoStruct, Il2CppObject** i2struct, const Il2CppType* i2type, int32_t msize);
+	void get_il2cpp_struct_raw(void* monoStruct, Il2CppObject** i2struct, const Il2CppType* i2type, int32_t msize);
+
+	bool inline is_primitive_il2cpp(const Il2CppType* type)
+	{
+		return !type->byref && ((type->type >= IL2CPP_TYPE_BOOLEAN && type->type <= IL2CPP_TYPE_R8) || (type->type >= IL2CPP_TYPE_I && type->type <= IL2CPP_TYPE_U));
+	}
+
+	bool inline is_struct_type_il2cpp(const Il2CppType* type)
+	{
+		return !type->byref && type->type == MONO_TYPE_VALUETYPE && !is_primitive_il2cpp(type);
+	}
+
+	bool inline is_primitive(MonoType* type)
+	{
+		return !type->byref && ((type->type >= MONO_TYPE_BOOLEAN && type->type <= MONO_TYPE_R8) || (type->type >= MONO_TYPE_I && type->type <= MONO_TYPE_U));
+	}
+
+	bool inline is_struct_type(MonoType* type)
+	{
+		return !type->byref && type->type == MONO_TYPE_VALUETYPE && !is_primitive(type);
+	}
+
+	bool inline is_struct(MonoClass* klass);
 	bool inline is_full_value_struct_type(MonoType* type);
 	bool inline is_full_value_struct(MonoClass* klass);
 

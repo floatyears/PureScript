@@ -152,19 +152,19 @@ namespace Generater
                     CS.Writer.WriteLine("Exception __e = null");
                     CS.Writer.Start("try");
 
-                    var reName = MethodResolver.Resolve(method).Implement("_value");
+                    var reName = MethodResolver.Resolve(method).IL2CppImplement("_value");
                     if (method.ReturnType != null)
                     {
                         if (method.ReturnType.IsArray)
                         {
                             CS.Writer.WriteLine($"__arrayLen = {reName} != null ? {reName}.Length : -1");
-                            CS.Writer.WriteLine($"if({reName} != null) {{ ObjectStore.GetReturnArrayMono({reName}, ref __retArrayPtr); }} ");
+                            CS.Writer.WriteLine($"if({reName} != null) {{ ObjectStore.GetReturnArrayToMono({reName}, ref __retArrayPtr); }} ");
                             reName = null; //return value is assigned with out parameter
                         }
                         else if (method.ReturnType.IsStruct(false))
                         {
                             CS.Writer.WriteLine($"var {reName}_gchandle = GCHandle.Alloc(_value, GCHandleType.Pinned); ");
-                            CS.Writer.WriteLine($"ObjectStore.GetReturnStructMono({reName}_gchandle.AddrOfPinnedObject(), ref __retStructPtr, typeof({Utils.FullName(method.ReturnType)}), Marshal.SizeOf<{Utils.FullName(method.ReturnType)}>())");
+                            CS.Writer.WriteLine($"ObjectStore.GetReturnStructToMono({reName}_gchandle.AddrOfPinnedObject(), ref __retStructPtr, typeof({Utils.FullName(method.ReturnType)}), Marshal.SizeOf<{Utils.FullName(method.ReturnType)}>())");
                             CS.Writer.WriteLine($"{reName}_gchandle.Free()");
                             //outStruct = $"__retStruct = default({Utils.FullName(method.ReturnType)})";
                             reName = null; //return value is assigned with out parameter
