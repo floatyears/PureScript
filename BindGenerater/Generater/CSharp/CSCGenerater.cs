@@ -4,29 +4,30 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using Mono.Cecil;
 
 namespace Generater
 {
-    public class CSCGenerater
+    public class CSCGeneraterManager
     {
-        static string[] addtionFlag = new string[]
+        public static string[] addtionFlag = new string[]
         {
             "-t:library",
             "-unsafe",
         };
-        static string[] addtionRef = new string[]
+        public static string[] addtionRef = new string[]
         {
             "mscorlib.dll",
             //"UnityEngine.CoreModule.dll",
             //"PureScript.dll",
         };
 
-        private static string CSCPath = "csc";
+        public static string CSCPath = "csc";
 
 
         private static string[] AdapterSrc = new string[]
         {
-            "glue/Binder.impl.cs",
+            "glue/IL2Cpp/Binder.il2cpp.cs",
             "Tools/CustomBinder.cs",
             "Tools/ObjectStore.cs",
         };
@@ -36,124 +37,198 @@ namespace Generater
             "Tools/CustomBinder.cs",
             "Tools/ObjectStore.wrapper.cs",
             "Tools/ScriptEngine.cs",
-            
+
         };
 
-        public static CSCGenerater AdapterCompiler;
-        public static CSCGenerater AdapterWrapperCompiler;
-        private static string OutDir;
-        private static string DllRefDir;
-        private static string AdapterDir;
+        private static CSCGenerater adapterCompiler;
+        //public static CSCGenerater AdapterWrapperCompiler;
+        private static string monoManagedDir;
+        private static string il2cppManagedDir;
+        public static string AdapterDir;
+        public static string OriginDir;
         private static HashSet<string> IgnoreRefSet = new HashSet<string>();
-        private static Dictionary<string, CSCGenerater> WrapperDic = new Dictionary<string, CSCGenerater>();
+        private static Dictionary<string, CSCGenerater> wrapperDic = new Dictionary<string, CSCGenerater>();
+        private static Dictionary<string, CSCGenerater> monoBehaviourProxyDic = new Dictionary<string, CSCGenerater>();
         private static List<BindGenerater.AsesemblyCheck> asesemblyCheck;
         public static Mono.Cecil.AssemblyDefinition corlib;
+        private static BindGenerater.BuildTargetPlatform targetPlatform;
 
-        public static void Init(string cscDir,string adapterDir, string outDir, HashSet<string> ignoreRefSet, List<BindGenerater.AsesemblyCheck> assemblyChk)
+        public static void Init(string cscDir, string adapterDir, string originDir, string _monoManagedDir, string _il2cppManagedDir, BindGenerater.BuildTargetPlatform platform, HashSet<string> ignoreRefSet, List<BindGenerater.AsesemblyCheck> assemblyChk)
         {
-            CSCPath = Path.Combine(cscDir, Utils.IsWin32() ? "csc.exe":"csc") ;
-            OutDir = outDir;
-            DllRefDir = outDir;
+            CSCPath = Path.Combine(cscDir, Utils.IsWin32() ? "csc.exe" : "csc");
+            monoManagedDir = _monoManagedDir;
+            il2cppManagedDir = _il2cppManagedDir;
             AdapterDir = adapterDir;
             IgnoreRefSet = ignoreRefSet;
-            AdapterCompiler = new CSCGenerater(Path.Combine(outDir, "Adapter.gen.dll"));
-            
-            foreach(var file in AdapterSrc)
-                AdapterCompiler.AddSource(Path.Combine(adapterDir,file));
-            AdapterCompiler.refSet.Add("PureScript.dll");
+            OriginDir = originDir;
+            targetPlatform = platform;
 
-            SetWrapper("Adapter.wrapper.dll");
+            var wrapperComp = GetMonoWrapperCompiler("Adapter.wrapper.dll", true);
             foreach (var file in AdapterWrapperSrc)
-                AdapterWrapperCompiler.AddSource(Path.Combine(adapterDir, file));
+                wrapperComp.AddSource(Path.Combine(adapterDir, file));
 
             asesemblyCheck = assemblyChk;
+
+            corlib = AssemblyDefinition.ReadAssembly(Path.Combine(monoManagedDir, "mscorlib.dll"));
         }
 
-        public static void SetWrapper(string dllName)
+        public static CSCGenerater GetIL2CppAdapterCompiler()
         {
-            if (!WrapperDic.TryGetValue(dllName,out AdapterWrapperCompiler))
+            if(adapterCompiler == null)
             {
-                AdapterWrapperCompiler = new CSCGenerater(Path.Combine(OutDir, dllName));
+                adapterCompiler = new CSCGenerater(Path.Combine(il2cppManagedDir, "Adapter.gen.dll"), DllRuntime.IL2Cpp, il2cppManagedDir);
+                adapterCompiler.AddPlatformDefine(targetPlatform);
+
+                foreach (var file in AdapterSrc)
+                    adapterCompiler.AddSource(Path.Combine(AdapterDir, file));
+                adapterCompiler.refSet.Add("PureScript.dll");
+            }
+
+            return adapterCompiler;
+        }
+
+        public static CSCGenerater GetMonoWrapperCompiler(string dllName, bool createWhenNULL = false)
+        {
+            if (!wrapperDic.TryGetValue(dllName, out var adapterWrapperCompiler))
+            {
+                if(!createWhenNULL)
+                {
+                    return null;
+                }
+                adapterWrapperCompiler = new CSCGenerater(Path.Combine(monoManagedDir, dllName), DllRuntime.Mono, monoManagedDir);
                 //foreach (var file in AdapterWrapperSrc)
                 //    AdapterWrapperCompiler.AddSource(Path.Combine(AdapterDir, file));
-                AdapterWrapperCompiler.AddDefine("WRAPPER_SIDE");
-                if (!Utils.IsWin32())
-                    AdapterWrapperCompiler.AddDefine("IOS");
+                adapterWrapperCompiler.AddDefine("WRAPPER_SIDE");
+                adapterWrapperCompiler.AddPlatformDefine(targetPlatform);
 
-                WrapperDic[dllName] = AdapterWrapperCompiler;
+                wrapperDic[dllName] = adapterWrapperCompiler;
 
                 if (dllName != "Adapter.wrapper.dll")
-                    AdapterWrapperCompiler.AddReference("Adapter.wrapper.dll");
+                    adapterWrapperCompiler.AddReference("Adapter.wrapper.dll");
             }
+            return adapterWrapperCompiler;
         }
 
-        public static void End()
+        public static void CompileAdapterAndWrapperDll()
         {
-            AdapterCompiler.Gen();
+            adapterCompiler.CompileDll();
             //AdapterWrapperCompiler.Gen();
-            var list = GetSortedList();
+            var list = GetSortedList(wrapperDic);
             foreach (var wrapper in list)
             {
-                wrapper.Gen();
+                wrapper.CompileDll();
             }
 
-            for(var i = 0; i < asesemblyCheck.Count; i++)
+            for (var i = 0; i < asesemblyCheck.Count; i++)
             {
                 var check = asesemblyCheck[i];
-                var checker = new CSCGenerater(Path.Combine(OutDir, check.Assembly));
-                checker.AddReference(AdapterCompiler.outName);
+                var checker = new CSCGenerater(Path.Combine(monoManagedDir, check.Assembly), DllRuntime.Mono, monoManagedDir);
+                checker.AddReference(adapterCompiler.outName);
                 checker.AddReference("System.dll");
                 checker.AddReference("System.Core.dll");
                 foreach (var wrapper in list)
                 {
                     checker.AddReference(wrapper.outName);
                 }
-                for(int j = 0; j < i; j++)
+                for (int j = 0; j < i; j++)
                 {
-                    checker.AddReference(Path.Combine(OutDir, asesemblyCheck[j].Assembly));
+                    checker.AddReference(Path.Combine(monoManagedDir, asesemblyCheck[j].Assembly));
                 }
                 foreach (var f in Directory.GetFiles(check.Source, check.Filter, SearchOption.AllDirectories))
                 {
                     checker.AddSource(f);
                 }
-                checker.AddDefine("UNITY_ANDROID");
-                checker.Gen();
+                checker.AddPlatformDefine(targetPlatform);
+                checker.CompileDll();
             }
         }
 
-        private static List<CSCGenerater> GetSortedList()
+        public static void CompileIL2CppMonoBehaviourProxyDll()
         {
-            foreach (var wrapper in WrapperDic.Values)
+            var list = GetSortedList(monoBehaviourProxyDic);
+            foreach (var wrapper in list)
             {
-                CountRef(wrapper);
+                wrapper.CompileDll();
             }
-            var list = new List<CSCGenerater>(WrapperDic.Values);
+        }
+
+        private static List<CSCGenerater> GetSortedList(Dictionary<string, CSCGenerater> dic)
+        {
+            foreach (var wrapper in dic.Values)
+            {
+                CountRef(wrapper, dic);
+            }
+            var list = new List<CSCGenerater>(dic.Values);
             list.Sort((a, b) => { return b.RefCount - a.RefCount; });
             return list;
         }
 
-        private static void CountRef(CSCGenerater gener)
+        private static void CountRef(CSCGenerater gener, Dictionary<string, CSCGenerater> dic)
         {
             foreach (var depend in gener.refSet)
             {
-                if (WrapperDic.TryGetValue(depend, out var dependGener))
+                if (dic.TryGetValue(depend, out var dependGener))
                 {
                     dependGener.RefCount++;
-                    CountRef(dependGener);
+                    CountRef(dependGener, dic);
                 }
             }
         }
 
+        public static CSCGenerater GetMonoBehaviourProxyWrapper(string dllName)
+        {
+            if (!monoBehaviourProxyDic.TryGetValue(dllName, out var monoBehaviourProxyCompiler))
+            {
+                monoBehaviourProxyCompiler = new CSCGenerater(Path.Combine(il2cppManagedDir, dllName), DllRuntime.IL2Cpp, il2cppManagedDir);
+                //foreach (var file in AdapterWrapperSrc)
+                //    AdapterWrapperCompiler.AddSource(Path.Combine(AdapterDir, file));
+                monoBehaviourProxyCompiler.AddPlatformDefine(targetPlatform);
 
+                monoBehaviourProxyDic[dllName] = monoBehaviourProxyCompiler;
+
+                monoBehaviourProxyCompiler.AddReference("PureScript.dll");
+                if (dllName != "Adapter.gen.dll")
+                    monoBehaviourProxyCompiler.AddReference("Adapter.gen.dll");
+            }
+
+            return monoBehaviourProxyCompiler;
+        }
+
+    }
+
+    public enum DllRuntime
+    {
+        None,
+        Mono,
+        IL2Cpp,
+    }
+
+    public class CSCGenerater 
+    { 
         public string outName { get; private set; }
         public HashSet<string> refSet = new HashSet<string>();
         public int RefCount = 0;
         HashSet<string> srcSet = new HashSet<string>();
         HashSet<string> defineSet = new HashSet<string>();
+        private string dllRefDir = null;
 
-        public CSCGenerater(string targetName)
+        public DllRuntime Runtime { private set; get; }
+
+        public void SetDllRefDir(string dir)
+        {
+            dllRefDir = dir;
+        }
+
+        public CSCGenerater(string targetName, DllRuntime runtime, string refDir)
         {
             outName = Path.GetFullPath(targetName);
+            Runtime = runtime;
+            dllRefDir = refDir;
+        }
+
+        public void SetRuntime(DllRuntime runtime)
+        {
+            Runtime = runtime;
         }
 
         public void AddReference(string target)
@@ -178,18 +253,39 @@ namespace Generater
             defineSet.Add(define);
         }
 
-        public void Gen()
+        public void AddPlatformDefine(BindGenerater.BuildTargetPlatform platform)
+        {
+            if (platform == BindGenerater.BuildTargetPlatform.iOS)
+            {
+                AddDefine("IOS");
+                AddDefine("UNITY_IOS");
+            }
+            else if(platform == BindGenerater.BuildTargetPlatform.Android)
+            {
+                AddDefine("UNITY_ANDROID");
+            }
+            else if (platform == BindGenerater.BuildTargetPlatform.StandaloneWindows)
+            {
+                AddDefine("UNITY_WIN");
+            }
+            else if (platform == BindGenerater.BuildTargetPlatform.StandaloneWindows64)
+            {
+                AddDefine("UNITY_WIN64");
+            }
+        }
+
+        public void CompileDll()
         {
             var fName = $"{Path.GetFileName(outName)}.txt";
-            using(var config = File.CreateText(fName))
+            using (var config = File.CreateText(fName))
             {
                 config.WriteLine($"-out:{outName}");
-                foreach (var flag in addtionFlag)
+                foreach (var flag in CSCGeneraterManager.addtionFlag)
                     config.WriteLine(flag);
-                foreach (var refFile in addtionRef)
-                    config.WriteLine($"-r:{Path.Combine(DllRefDir, refFile)}");
+                foreach (var refFile in CSCGeneraterManager.addtionRef)
+                    config.WriteLine($"-r:{Path.GetFullPath(Path.Combine(dllRefDir, refFile))}");
                 foreach (var refFile in refSet)
-                    config.WriteLine($"-r:{Path.Combine(DllRefDir, refFile)}");
+                    config.WriteLine($"-r:{Path.GetFullPath(Path.Combine(dllRefDir, refFile))}");
                 foreach (var define in defineSet)
                     config.WriteLine($"-define:{define}");
                 if(true)
@@ -197,17 +293,17 @@ namespace Generater
                     config.WriteLine($"-debug:embedded");
                 }
 
-                var netstandFile = Path.Combine(OutDir, "netstandard.dll");
+                var netstandFile = Path.Combine(dllRefDir, "netstandard.dll");
                 if(File.Exists(netstandFile))
-                    config.WriteLine($"-r:{Path.Combine(DllRefDir, netstandFile)}");
+                    config.WriteLine($"-r:{Path.Combine(dllRefDir, netstandFile)}");
 
                 foreach (var src in srcSet)
                     config.WriteLine(src);
             }
 
-            int res = Utils.RunCMD(CSCPath, new string[] { $"@{fName}" });
+            int res = Utils.RunCMD(CSCGeneraterManager.CSCPath, new string[] { $"@{fName}" });
             if (res != 0)
-                throw new Exception($"Run CSC error,with: {CSCPath} @{fName}");
+                throw new Exception($"Run CSC error,with: {CSCGeneraterManager.CSCPath} @{fName}");
         }
         /*public void AddTypeForwardedTo(string typeName)
         {

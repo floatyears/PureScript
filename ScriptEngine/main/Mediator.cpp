@@ -348,8 +348,8 @@ MonoArray* get_mono_array(Il2CppArray * array)
 		return monoArray;
 
 	uint32_t len = il2cpp_array_length(array);
-	if (len == 0) //check the array length first
-		return monoArray;
+	//if (len == 0) //check the array length first
+	//	return monoArray;
 
 	Il2CppClass* aklass = il2cpp_object_get_class((Il2CppObject*)array);
 	Il2CppClass* eklass = il2cpp_class_get_element_class(aklass);
@@ -362,17 +362,26 @@ MonoArray* get_mono_array(Il2CppArray * array)
 	MonoClass* monoklass = get_mono_class(eklass);
     if(monoklass == NULL)
     {
-		platform_log("no match mono class with Il2CppObject: %s, len: %d", il2cpp_class_get_name(aklass), len);
-        Il2CppObject* il2cppObj = il2cpp_array_get(array, Il2CppObject*, 0);
-        MonoObject* monoObj = get_mono_object(il2cppObj, NULL);
-        if(monoObj != NULL)
-            monoklass = mono_object_get_class(monoObj);
+		platform_log("no match mono class with Il2CppObject: %s[], len: %d", il2cpp_class_get_name(eklass), len);
+		if (len > 0) {
+			Il2CppObject* il2cppObj = il2cpp_array_get(array, Il2CppObject*, 0);
+			MonoObject* monoObj = get_mono_object(il2cppObj, NULL);
+			if (monoObj != NULL)
+				monoklass = mono_object_get_class(monoObj);
+		}
+		else
+		{
+			return monoArray;
+		}
     }
 		
 	monoArray = mono_array_new(g_domain, monoklass, len);
+	if (len == 0)
+	{
+		return monoArray;
+	}
+
 	MonoType* monoType = mono_class_get_type(monoklass);
-	//if (len == 0)
-	//	return monoArray;
 	if (is_primitive(monoType))
 	{
 		char* _p = il2cpp_array_addr_with_size(array, il2cpp_class_array_element_size(eklass), 0);
@@ -432,7 +441,7 @@ MonoArray* get_mono_array(Il2CppArray * array)
 		}
 		else
 		{
-			platform_log("array element class must be subclass of WObject:", mono_class_get_name(monoklass));
+			platform_log("(il2cpp to mono)mono array element class must be subclass of WObject:", mono_class_get_name(monoklass));
 		}
 	}
 	
@@ -514,7 +523,7 @@ Il2CppArray* get_il2cpp_array(MonoArray* array)
 		}
 		else
 		{
-			platform_log("array element class must be subclass of WObject:", mono_class_get_name(eklass));
+			platform_log("(mono to il2cpp)array element class must be subclass of WObject:", mono_class_get_name(eklass));
 		}
 	}
 	

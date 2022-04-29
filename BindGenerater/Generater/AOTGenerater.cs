@@ -19,17 +19,19 @@ namespace Generater
         static string ManagedDir;
         static string AotDir;
         static bool needAOT;
-        public static void Init(string workDir)
+        static BindGenerater.BuildTargetPlatform targetPlatform;
+
+        public static void Init(string workDir, BindGenerater.BuildTargetPlatform platform)
         {
             WorkDir = workDir;
-            
+            targetPlatform = platform;
             ManagedDir = Path.Combine(workDir, "Managed");
             NinjaWriter = new CodeWriter(File.CreateText(Path.Combine(ManagedDir, "build.ninja")));
             NinjaWriter._eol = "";
             AotDir = Path.Combine(workDir, "aot");
             ModuleRegisterWriter = new CodeWriter(File.CreateText(Path.Combine(workDir, "generated", "aot_module_register.c")));
 
-            needAOT = !Utils.IsWin32();
+            needAOT = targetPlatform == BindGenerater.BuildTargetPlatform.iOS;
         }
         public static void AddAOTAssembly(string file)
         {

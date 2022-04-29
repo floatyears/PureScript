@@ -108,10 +108,11 @@ Il2CppObject* ConvertObjectMonoToIL2Cpp(MonoObject* monoObj)
 		//TODO: to implement
 		MonoClass* eklass = mono_class_get_element_class(klass);
 		Il2CppArray* i2Array = get_il2cpp_array((MonoArray*)monoObj);
-		if (i2Array != NULL)
+		//array对象本身不用bind，因为bind element对象就足够了
+		/*if (i2Array != NULL)
 		{
 			bind_mono_il2cpp_object(monoObj, (Il2CppObject*)i2Array);
-		}
+		}*/
 		return (Il2CppObject*)i2Array;
 	}
 	else if(type->type == MONO_TYPE_CLASS)
@@ -131,11 +132,12 @@ Il2CppObject* ConvertObjectMonoToIL2Cpp(MonoObject* monoObj)
 		else
 		{
 			platform_log("array element class must be subclass of WObject: %s", mono_class_get_name(klass));
+			return NULL;
 		}
 	}
 	else
 	{
-		platform_log("convert object mono to il2cpp, type not support: %s", mono_class_get_name(klass));
+		platform_log("convert object mono to il2cpp fail, type not support: %s", mono_class_get_name(klass));
 		return NULL;
 	}
 	
@@ -436,6 +438,10 @@ MonoArray* UnityEngine_GameObject_GetComponentsInternal(MonoObject* obj, MonoRef
 	Il2CppObject* il2cppObj = get_il2cpp_object(obj, NULL);
 	Il2CppReflectionType* il2cppType = get_il2cpp_reflection_type(type);
 	
+	if (il2cppObj == NULL || il2cppType == NULL)
+	{
+		platform_log("type not found: %s", mono_class_get_name(mono_class_from_mono_type(mono_reflection_type_get_type(type))));
+	}
 	Il2CppArray* res = icall(il2cppObj, il2cppType, useSearchTypeAsArrayReturnType, recursive, includeInactive, reverse, NULL);//resultList
 
 	MonoArray* monoRes = get_mono_array(res);

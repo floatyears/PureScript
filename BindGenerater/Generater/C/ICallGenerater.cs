@@ -95,6 +95,13 @@ namespace Generater.C
             if (!method.ReturnType.IsVoid())
             {
                 var monoRes = CTypeResolver.Resolve(method.ReturnType).Box("i2res");
+                if (i2ReturnTypeName.Contains("*"))
+                {
+                    CS.Writer.Start($"if(i2res != NULL && {monoRes} == NULL)");
+                    CS.Writer.WriteLine($"platform_log(\"{CUtils.GetICallDescName(method)} fail to convert il2cpp obj to mono\")");
+                    CS.Writer.End();
+                }
+                
                 CS.Writer.WriteLine($"return {monoRes}");
             }
         }

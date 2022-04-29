@@ -26,6 +26,8 @@ namespace Generater
         GeneratedMethod = 1,
 
         GeneratedDelegate = 2,
+
+        GeneratedDelegateByField = 3,
     }
 
     public class MemberTypeContext
@@ -47,7 +49,15 @@ namespace Generater
         {
             get
             {
-                return methodType == MethodTypeSlot.GeneratedDelegate;
+                return methodType == MethodTypeSlot.GeneratedDelegate || methodType == MethodTypeSlot.GeneratedDelegateByField;
+            }
+        }
+
+        public bool IsGeneratedDelegateByField
+        {
+            get
+            {
+                return methodType == MethodTypeSlot.GeneratedDelegateByField;
             }
         }
 
@@ -525,9 +535,9 @@ namespace Generater
             return $"{name}Marshal";
         }
 
-        public static string LocalMamberName(string name, MethodDefinition context)
+        public static string LocalMamberName(string name, MethodDefinition method)
         {
-            var uniq = FullMemberName(context);
+            var uniq = FullMemberName(new MemberTypeContext(MemberTypeSlot.None, MethodTypeSlot.None, method));
             return _Member($"{uniq}_{name}");
         }
 
@@ -543,7 +553,7 @@ namespace Generater
                     declarType = method.DeclaringType;
                     paramCount = method.Parameters.Count;
                     returnValue = !method.ReturnType.IsVoid();
-                    uniqueName = FullMemberName(method);
+                    uniqueName = FullMemberName(context);
                 }
             }
             else
@@ -552,13 +562,25 @@ namespace Generater
             }
         }
 
-        static string FullMemberName(MethodDefinition method)
+        static string FullMemberName(MemberTypeContext context)
         {
+            var method = context.memberDefinition as MethodDefinition;
             var methodName = method.Name;
             if (method.IsAddOn) // || method.IsSetter || method.IsGetter)
+            {
                 methodName = methodName.Substring("add_".Length);//trim "add_" or "set_"
+            }
             else if (method.IsRemoveOn)
+            {
                 methodName = methodName.Substring("remove_".Length);//trim "remove_"
+            }
+            else if(context.IsGeneratedDelegateByField) //field模拟的delegate用公用一个delegate成员
+            {
+                if(method.IsSetter || method.IsGetter)
+                {
+                    methodName = methodName.Substring("set_".Length);//trim "add_" or "set_"
+                }
+            }
 
             // Special to AddListener / RemoveListener
             else if (method.Parameters.Count == 1 && methodName.StartsWith("Add"))

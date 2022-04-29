@@ -196,46 +196,54 @@ namespace Generater
 
     public static class GenerateBindings
     {
-        static BindingGenerater implGenerater;
-        static BindingGenerater wrapGenerater;
+        static BindingGenerater il2cppGenerater;
+        static BindingGenerater monoWrapGenerater;
 
-        public static void StartWraper(string file)
+        public static void StartMonoWraper(string file, CSCGenerater wrapperCompiler)
         {
-            if (implGenerater == null)
-            {
-                var implName = "Binder.impl.cs";
-                var implWriter = File.CreateText(Path.Combine(Binder.OutDir, implName));
-                implGenerater = new BindingGenerater("Binder.impl",0, implWriter);
-            }
-
-            var name = $"Binder.{file.Replace(".dll",".cs")}";
-            var path = Path.Combine(Binder.OutDir, name);
+            var name = $"Binder.mono.{file.Replace(".dll",".cs")}";
+            file = file.Replace(".dll", "");
+            var dir1 = Path.Combine(Binder.OutDir, "Mono_" + file);
+            Directory.CreateDirectory(dir1);
+            var path = Path.Combine(dir1, name);
             var writer = File.CreateText(path);
-            var offset = wrapGenerater != null ? wrapGenerater.Offset : 0;
-            wrapGenerater = new BindingGenerater(name, offset, writer);
+            var offset = monoWrapGenerater != null ? monoWrapGenerater.Offset : 0;
+            monoWrapGenerater = new BindingGenerater(name, offset, writer);
 
-            CSCGenerater.AdapterWrapperCompiler.AddSource(path);
+            wrapperCompiler.AddSource(path);
+        }
+
+        public static void StartIL2CppAdpater()
+        {
+            var il2cppName = "Binder.il2cpp.cs";
+            var dir = Path.Combine(Binder.OutDir, "IL2Cpp");
+            if (!Directory.Exists(dir))
+            {
+                Directory.CreateDirectory(dir);
+            }
+            var il2cppWriter = File.CreateText(Path.Combine(Binder.OutDir, "IL2Cpp", il2cppName));
+            il2cppGenerater = new BindingGenerater("Binder.il2cpp", 0, il2cppWriter);
         }
 
         public static void AddMethod(MethodDefinition method)
         {
-            implGenerater.AddMethod(method);
-            wrapGenerater.AddMethod(method);
+            il2cppGenerater.AddMethod(method);
+            monoWrapGenerater.AddMethod(method);
         }
 
         public static void AddDelegateDefine(string defineStr, string wrapDefineStr)
         {
-            implGenerater.AddDelegateDefine(defineStr);
-            wrapGenerater.AddDelegateDefine(wrapDefineStr);
+            il2cppGenerater.AddDelegateDefine(defineStr);
+            monoWrapGenerater.AddDelegateDefine(wrapDefineStr);
         }
 
         public static void Gen()
         {
-            wrapGenerater.GenWrapper();
+            monoWrapGenerater.GenWrapper();
         }
         public static void End()
         {
-            implGenerater.GenImpl();
+            il2cppGenerater.GenImpl();
         }
     }
 }

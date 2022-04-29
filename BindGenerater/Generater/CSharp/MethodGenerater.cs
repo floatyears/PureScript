@@ -5,18 +5,42 @@ using System.Linq;
 
 namespace Generater
 {
+    public enum MethodType
+    {
+        None = 0,
+        GeneratedByDelegate = 1,
+        GeneratedByField = 1,
+    }
+
     public class MethodGenerater : CodeGenerater
     {
         MethodDefinition genMethod;
         CodeWriter writer;
+        MethodType methodType;
 
         bool isNotImplement = false;
-        public MethodGenerater(MethodDefinition method)
+        ClassGenerater classGenerater;
+
+        public MethodGenerater(MethodDefinition method, ClassGenerater parent)
         {
             genMethod = method;
-            isNotImplement = !Utils.Filter(method);
+            classGenerater = parent;
+            Init();
+        }
 
-            isNotImplement |= method.IsConstructor && method.DeclaringType.IsSubclassOf("UnityEngine.Component"); // UnityEngine.Component cant be new..
+        public MethodGenerater(MethodDefinition method, ClassGenerater parent, MethodType methodType = MethodType.None)
+        {
+            genMethod = method;
+            this.methodType = methodType;
+            classGenerater = parent;
+            Init();
+        }
+
+        private void Init()
+        {
+            isNotImplement = !Utils.Filter(genMethod);
+
+            isNotImplement |= genMethod.IsConstructor && genMethod.DeclaringType.IsSubclassOf("UnityEngine.Component"); // UnityEngine.Component cant be new..
 
             if (isNotImplement)//maybe generate a empty method?
                 return;
@@ -33,17 +57,17 @@ namespace Generater
             }
             Binder.AddType(genMethod.ReturnType.Resolve());
 
-            if (!method.IsAbstract && !isNotImplement)
+            if (!genMethod.IsAbstract && !isNotImplement)
                 GenerateBindings.AddMethod(genMethod);
         }
 
-        public override void Gen()
+        public override void GenerateCode()
         {
             if (isNotImplement)
                 return;
 
             writer = CS.Writer;
-            base.Gen();
+            base.GenerateCode();
 
             if (!Utils.IsVisibleToOthers(genMethod) && !genMethod.DeclaringType.IsInterface)
                 return;
@@ -210,7 +234,7 @@ namespace Generater
 
         string GetMethodDelcear()
         {
-            string declear = Utils.GetMemberDelcear(genMethod);
+            string declear = Utils.GetMemberDelcear(genMethod, classGenerater.TokenMap);
 
             if (genMethod.IsConstructor)
             {

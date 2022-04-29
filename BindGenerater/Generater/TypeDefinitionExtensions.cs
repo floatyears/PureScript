@@ -198,6 +198,10 @@ static internal class TypeDefinitionExtensions
         return type.Name.Equals("Void");
     }
 
+    public static bool IsString(this TypeReference type)
+    {
+        return type.FullName.Equals("System.String");
+    }
     public static bool IsOverride(this MethodReference self)
     {
         if (self == null)

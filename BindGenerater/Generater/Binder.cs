@@ -22,7 +22,7 @@ namespace Generater
 
         public static string OutDir;
 
-        public static Dictionary<string, CSharpDecompiler> DecompilerDic = new Dictionary<string, CSharpDecompiler>();
+        private static Dictionary<string, CSharpDecompiler> decompilerDic = new Dictionary<string, CSharpDecompiler>();
         public static DecompilerSettings DecompilerSetting;
         public static string ManagedDir;
         public static ModuleDefinition curModule;
@@ -45,6 +45,15 @@ namespace Generater
             Directory.CreateDirectory(outDir);
 
             Utils.IgnoreTypeSet.UnionWith(Config.Instance.CSharpIgnorTypes);
+
+            DecompilerSetting = new DecompilerSettings(LanguageVersion.CSharp7);
+            DecompilerSetting.ThrowOnAssemblyResolveErrors = false;
+            DecompilerSetting.UseExpressionBodyForCalculatedGetterOnlyProperties = false;
+        }
+
+        public static void Start()
+        {
+            GenerateBindings.StartIL2CppAdpater();
         }
 
         public static void End()
@@ -62,10 +71,6 @@ namespace Generater
         {
             var file = Path.GetFileName(dllPath);
 
-            DecompilerSetting = new DecompilerSettings(LanguageVersion.CSharp7);
-            DecompilerSetting.ThrowOnAssemblyResolveErrors = false;
-            DecompilerSetting.UseExpressionBodyForCalculatedGetterOnlyProperties = false;
-
             ManagedDir = Path.GetDirectoryName(dllPath);
             DefaultAssemblyResolver resolver = new DefaultAssemblyResolver();
             resolver.AddSearchDirectory(ManagedDir);
@@ -78,15 +83,17 @@ namespace Generater
             curModule = ModuleDefinition.ReadModule(dllPath, parameters);
             moduleSet.Add(curModule);
             ICallGenerater.AddWrapperAssembly(curModule.Assembly.Name.Name);
-            CSCGenerater.SetWrapper(file);
-            GenerateBindings.StartWraper(file);
-            CSCGenerater.AdapterCompiler.AddReference(curModule.Name);
+            var wrapperCompiler = CSCGeneraterManager.GetMonoWrapperCompiler(file, true);
+            GenerateBindings.StartMonoWraper(file, wrapperCompiler);
+
+            var adapterCompiler = CSCGeneraterManager.GetIL2CppAdapterCompiler();
+            adapterCompiler.AddReference(curModule.Name);
             foreach(var refAssembly in curModule.AssemblyReferences )
             {
-                CSCGenerater.AdapterCompiler.AddReference(refAssembly.Name + ".dll");
-                CSCGenerater.AdapterWrapperCompiler.AddReference(refAssembly.Name + ".dll");
+                adapterCompiler.AddReference(refAssembly.Name + ".dll");
+                wrapperCompiler.AddReference(refAssembly.Name + ".dll");
             }
-            CSCGenerater.AdapterWrapperCompiler.RemoveReference(curModule.Name);
+            wrapperCompiler.RemoveReference(curModule.Name);
 
             moduleTypes = new HashSet<TypeReference>(curModule.Types);
 
@@ -104,7 +111,7 @@ namespace Generater
             {
                 var gener = generaters.Dequeue();
                 if (gener != null)
-                    gener.Gen();
+                    gener.GenerateCode();
             }
             generaters.Clear();
 
@@ -123,7 +130,8 @@ namespace Generater
             if (!Utils.Filter(type))
                 return;
 
-            generaters.Enqueue(new ClassGenerater(type));
+            var compiler = CSCGeneraterManager.GetMonoWrapperCompiler(type.Module.Name, false);
+            generaters.Enqueue(new ClassGenerater(type, compiler));
             
         }
 
@@ -140,12 +148,12 @@ namespace Generater
         {
             CSharpDecompiler decompiler = null;
             
-            if (DecompilerDic.TryGetValue(module, out decompiler))
+            if (decompilerDic.TryGetValue(module, out decompiler))
                 return decompiler;
 
             var dllPath = Path.Combine(ManagedDir, module);
             decompiler = new CSharpDecompiler(dllPath, DecompilerSetting);
-            DecompilerDic[module] = decompiler;
+            decompilerDic[module] = decompiler;
             return decompiler;
         }
         

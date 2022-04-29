@@ -19,6 +19,14 @@ namespace BindGenerater
         public string Filter;
     }
 
+    public enum BuildTargetPlatform
+    {
+        Android,
+        iOS,
+        StandaloneWindows,
+        StandaloneWindows64,
+    }
+
     class Program
     {
 
@@ -36,19 +44,13 @@ namespace BindGenerater
             All,
         }
 
-        public enum TargetPlatform
-        {
-            Android,
-            iOS,
-            StandaloneWindows,
-            StandaloneWindows64,
-        }
 
         static BindOptions options;
 
         public static string ToolsetPath;
         public static BindTarget Mode;
-        public static TargetPlatform Platform;
+        public static BuildTargetPlatform Platform;
+        private static string il2cppOriginDir;
 
         static int Main(string[] args)
         {
@@ -63,6 +65,7 @@ namespace BindGenerater
                  StartBinder(args);
                  //StartTestBinder();
                  Utils.Log("Binder All Done..");
+
              }
              catch(Exception e)
              {
@@ -76,17 +79,39 @@ namespace BindGenerater
         static void StartBinder(string[] args)
         {
             if (args.Length < 2)
+            {
                 return;
+            }
             var configFile = args[0];
             ToolsetPath = args[1];
+
             if (args.Length >= 3)
-                Mode = (BindTarget)Enum.Parse(typeof(BindTarget), args[2]);
+            {
+                il2cppOriginDir = args[2];
+            }
             else
+            {
+                throw new Exception("IL2Cpp origin directory not found");
+            }
+            if (args.Length >= 4)
+            {
+                Mode = (BindTarget)Enum.Parse(typeof(BindTarget), args[3]);
+            }
+            else
+            {
                 Mode = BindTarget.All;
-            if(args.Length >= 4)
-                Platform = (TargetPlatform)Enum.Parse(typeof(TargetPlatform), args[3]);
+            }
+
+
+            Mode = BindTarget.All;
+            if (args.Length >= 5)
+            {
+                Platform = (BuildTargetPlatform)Enum.Parse(typeof(BuildTargetPlatform), args[4]);
+            }
             else
-                Platform = TargetPlatform.Android;
+            {
+                Platform = BuildTargetPlatform.Android;
+            }
 
             Console.WriteLine("start binder..");
             Directory.SetCurrentDirectory(Path.GetDirectoryName(configFile));
@@ -94,29 +119,47 @@ namespace BindGenerater
             var json = File.ReadAllText(configFile);
             options = JsonConvert.DeserializeObject<BindOptions>(json);
 
-            string managedDir = Path.Combine(options.ScriptEngineDir, "Managed");
+            string monoManagedDir = Path.Combine(options.ScriptEngineDir, "Managed_mono");
+            string il2cppManagedDir = Path.Combine(options.ScriptEngineDir, "Managed_il2cpp");
             string orignDir = Path.Combine(options.ScriptEngineDir, "Managed_orign");
             string adapterDir = Path.Combine(options.ScriptEngineDir, "Adapter");
             string platformLibDir = Path.Combine(options.ScriptEngineDir, "Tools");
 
-            Utils.CopyDir(orignDir, managedDir, ".dll");
-            ReplaceMscorlib("lib", managedDir);
+            //copy origin dll to dir
+            CreateOrCleanDirectory(orignDir);
+            Utils.CopyDir(il2cppOriginDir, orignDir, ".dll");
+
+            //clean
+            CreateOrCleanDirectory(monoManagedDir);
+            CreateOrCleanDirectory(il2cppManagedDir);
+            //copy to mono and il2cpp
+            Utils.CopyDir(orignDir, monoManagedDir, ".dll");
+            Utils.CopyDir(orignDir, il2cppManagedDir, ".dll");
+            ReplaceMscorlib("lib", monoManagedDir);
+            ReplaceMscorlib("lib", il2cppManagedDir);
 
             Binder.Init(Path.Combine(adapterDir, "glue"));
-            CSCGenerater.Init(ToolsetPath, adapterDir, managedDir, options.AdapterSet, options.AssembliesCheck);
+            CSCGeneraterManager.Init(ToolsetPath, adapterDir, orignDir, monoManagedDir, il2cppManagedDir, Platform, options.AdapterSet, options.AssembliesCheck);
+            MonoBehaviorProxyManager.Init(orignDir, il2cppManagedDir, orignDir);
             CBinder.Init(Path.Combine(options.ScriptEngineDir, "generated"));
-            AOTGenerater.Init(options.ScriptEngineDir);
+            AOTGenerater.Init(options.ScriptEngineDir, Platform);
 
-            var entryAssembly = AssemblyDefinition.ReadAssembly(Path.Combine(orignDir, options.Entry.First()));
-            CSCGenerater.corlib = AssemblyDefinition.ReadAssembly(Path.Combine(Path.GetDirectoryName(entryAssembly.MainModule.FileName), "mscorlib.dll"));
+            foreach(var assembly in options.InterpSet)
+            {
+                MonoBehaviorProxyManager.GenIL2CppImplement(assembly);
+            }
+            MonoBehaviorProxyManager.End();
+
             var assemblySet = new HashSet<string>();
             foreach(var entry in options.Entry)
             {
                 Utils.CollectMonoAssembly(entry, orignDir, options.AdapterSet, assemblySet);
             }
+            CSCGeneraterManager.CompileIL2CppMonoBehaviourProxyDll();
 
             options.AdapterSet.UnionWith(assemblySet.Where(assem => assem.StartsWith("UnityEngine.") || assem.StartsWith("Unity.")));
 
+            Binder.Start();
             foreach (var assembly in options.AdapterSet)
             {
                 if (Config.Instance.IgnoreAssemblySet.Contains(assembly))
@@ -131,13 +174,13 @@ namespace BindGenerater
                 
             }
             Binder.End();
-            CSCGenerater.End();
+            CSCGeneraterManager.CompileAdapterAndWrapperDll();
 
             if (Mode == BindTarget.All)
             {
                // CBinder.Bind(CSCGenerater.AdapterWrapperCompiler.outName);
 
-                foreach (var filePath in Directory.GetFiles(managedDir))
+                foreach (var filePath in Directory.GetFiles(monoManagedDir))
                 {
                     var file = Path.GetFileName(filePath);
                     if (file.EndsWith(".dll") && !Config.Instance.IgnoreAssemblySet.Contains(file))
@@ -164,12 +207,28 @@ namespace BindGenerater
                 AOTGenerater.End();
             }
 
+            //after build
+            BackupDir(il2cppOriginDir, true);
+
+            //replace adapter by generated assembly
+            var il2cppCopyBack = new List<string>(options.InterpSet);
+            il2cppCopyBack.Add("Adapter.gen.dll");
+            foreach(var dll in il2cppCopyBack)
+            {
+                var newDll = Path.Combine(il2cppManagedDir, dll);
+                var oldDll = Path.Combine(il2cppOriginDir, dll);
+                if (File.Exists(newDll))
+                {
+                    File.Copy(newDll, oldDll, true);
+                    //File.Delete(generatedAdapter);
+                }
+            }
 
         }
 
         public static void ReplaceMscorlib(string libDir, string outDir)
         {
-            var srcDir = Path.Combine(libDir, Platform == TargetPlatform.Android ? "Android" : (Platform == TargetPlatform.iOS ? "iOS" : "win32"));// Path.Combine(libDir, Utils.IsWin32() ? "win32" : "iOS");
+            var srcDir = Path.Combine(libDir, Platform == BuildTargetPlatform.Android ? "Android" : (Platform == BuildTargetPlatform.iOS ? "iOS" : "win32"));// Path.Combine(libDir, Utils.IsWin32() ? "win32" : "iOS");
 
             DirectoryInfo dir = new DirectoryInfo(srcDir);
 
@@ -184,7 +243,50 @@ namespace BindGenerater
             }
         }
 
+        static void CreateOrCleanDirectory(string dir)
+        {
+            if (Directory.Exists(dir))
+                Directory.Delete(dir, true);
+            Directory.CreateDirectory(dir);
+        }
 
+        public static void BackupDir(string workingDirectory, bool revert = false)
+        {
+            string BackupDir = workingDirectory + "_back";
+
+            if (revert)
+            {
+                if (Directory.Exists(BackupDir))
+                {
+                    CopyManagedFile(BackupDir, workingDirectory);
+                    Directory.Delete(BackupDir, true);
+                }
+            }
+            else
+            {
+                CopyManagedFile(workingDirectory, BackupDir);
+            }
+        }
+
+        public static void CopyManagedFile(string workDir, string managedPath)
+        {
+            CreateOrCleanDirectory(managedPath);
+
+            if (string.IsNullOrEmpty(workDir))
+            {
+                Console.WriteLine(" ============ workDir is null");
+                return;
+            }
+
+            Console.WriteLine("copy dir : " + workDir);
+            var files = Directory.GetFiles(workDir);
+            foreach (string fi in files)
+            {
+                string fname = Path.GetFileName(fi);
+                string targetfname = Path.Combine(managedPath, fname);
+                File.Copy(fi, targetfname);
+            }
+        }
 
         static void StartTestBinder()
         {

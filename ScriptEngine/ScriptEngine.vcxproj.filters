@@ -51,6 +51,9 @@
     <ClCompile Include="generated\aot_module_register.c">
       <Filter>源文件</Filter>
     </ClCompile>
+    <ClCompile Include="main\runtime_android.c">
+      <Filter>源文件</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="lib\include\engine_include.h">
@@ -75,6 +78,9 @@
       <Filter>头文件</Filter>
     </ClInclude>
     <ClInclude Include="custom\wrapper.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="lib\include\runtime_android.h">
       <Filter>头文件</Filter>
     </ClInclude>
   </ItemGroup>

@@ -17,18 +17,21 @@ namespace Generater
         bool isVirtual;
         bool isConst;
 
+        ClassGenerater classGenerater;
+
         List<MethodGenerater> methods = new List<MethodGenerater>();
 
-        public PropertyGenerater(PropertyDefinition property)
+        public PropertyGenerater(PropertyDefinition property, ClassGenerater parent)
         {
             genProperty = property;
+            classGenerater = parent;
             if (genProperty.GetMethod != null && genProperty.GetMethod.IsPublic )
             {
                 isStatic = genProperty.GetMethod.IsStatic;
                 isAbstract = genProperty.GetMethod.IsAbstract;
                 isOverride = genProperty.GetMethod.IsOverride();
                 isVirtual = genProperty.GetMethod.IsVirtual && !genProperty.DeclaringType.IsValueType;
-                methods.Add(new MethodGenerater(genProperty.GetMethod));
+                methods.Add(new MethodGenerater(genProperty.GetMethod, parent));
             }
             if (genProperty.SetMethod != null && genProperty.SetMethod.IsPublic )
             {
@@ -36,14 +39,15 @@ namespace Generater
                 isAbstract = genProperty.SetMethod.IsAbstract;
                 isOverride = genProperty.SetMethod.IsOverride();
                 isVirtual = genProperty.SetMethod.IsVirtual && !genProperty.DeclaringType.IsValueType;
-                methods.Add(new MethodGenerater(genProperty.SetMethod));
+                methods.Add(new MethodGenerater(genProperty.SetMethod, parent));
             }
 
         }
 
-        public PropertyGenerater(FieldDefinition field)
+        public PropertyGenerater(FieldDefinition field, ClassGenerater parent)
         {//TODO: PropertyGenerater(FieldDefinition field)
             genField = field;
+            classGenerater = parent;
             if(!Utils.Filter(genField.FieldType) || Utils.IsDelegate(genField.DeclaringType)) //delegate是作为函数指针传递，mono只能传递static的delegate到unmanaged code
                 return;
 
@@ -55,7 +59,7 @@ namespace Generater
                 if (!genField.IsInitOnly)
                 {
                     //TODO:这里构造一个setter 和 getter，field的状态还是在il2cpp层持有
-                    var corlib = CSCGenerater.corlib;// AssemblyDefinition.ReadAssembly(Path.Combine(Path.GetDirectoryName(genField.FieldType.Module.FileName), "mscorlib.dll"));
+                    var corlib = CSCGeneraterManager.corlib;// AssemblyDefinition.ReadAssembly(Path.Combine(Path.GetDirectoryName(genField.FieldType.Module.FileName), "mscorlib.dll"));
 
                     var setMethod = new MethodDefinition("set_" + genName, MethodAttributes.Public, corlib.MainModule.GetType("System", "Void"));
                     setMethod.DeclaringType = field.DeclaringType;
@@ -63,10 +67,10 @@ namespace Generater
                     setMethod.IsSetter = true;
                     setMethod.IsPublic = genField.IsPublic;
                     setMethod.IsStatic = genField.IsStatic;
-                    setMethod.Attributes |= MethodAttributes.CompilerControlled;
+                    //setMethod.Attributes |= MethodAttributes.CompilerControlled;
                     var parameters = setMethod.Parameters;
                     parameters.Add(new ParameterDefinition("value", ParameterAttributes.None, genType));
-                    methods.Add(new MethodGenerater(setMethod));
+                    methods.Add(new MethodGenerater(setMethod, parent, MethodType.GeneratedByField));
                 }
 
 
@@ -76,9 +80,9 @@ namespace Generater
                 getMethod.IsGetter = true;
                 getMethod.IsPublic = genField.IsPublic;
                 getMethod.IsStatic = genField.IsStatic;
-                getMethod.Attributes |= MethodAttributes.CompilerControlled;
+                //getMethod.Attributes |= MethodAttributes.CompilerControlled;
                 var parameters1 = getMethod.Parameters;
-                methods.Add(new MethodGenerater(getMethod));
+                methods.Add(new MethodGenerater(getMethod, parent, MethodType.GeneratedByField));
             }    
 
             isStatic = genField.IsStatic;
@@ -89,9 +93,9 @@ namespace Generater
 
 
 
-        public override void Gen()
+        public override void GenerateCode()
         {
-            base.Gen();
+            base.GenerateCode();
             if (!isConst && methods.Count < 1)
                 return;
 
@@ -106,7 +110,7 @@ namespace Generater
         void GenProperty()
         {
 
-            var declear = Utils.GetMemberDelcear(genProperty);
+            var declear = Utils.GetMemberDelcear(genProperty, classGenerater.TokenMap);
 
             //TODO:mono cecil库貌似无法获取到property的extern属性，所以假定internal call肯定是extern
             if((genProperty.GetMethod != null && genProperty.GetMethod.ImplAttributes == MethodImplAttributes.InternalCall) 
@@ -117,14 +121,14 @@ namespace Generater
             CS.Writer.Start(declear);
 
             foreach (var m in methods)
-                m.Gen();
+                m.GenerateCode();
 
             CS.Writer.End();
         }
 
         void GenField()
         {
-            var declear = Utils.GetMemberDelcear(genField);
+            var declear = Utils.GetMemberDelcear(genField, classGenerater.TokenMap);
             if (isConst)
             {
                 CS.Writer.Write(declear);
@@ -142,7 +146,7 @@ namespace Generater
             CS.Writer.Start(declear);
 
             foreach (var m in methods)
-                m.Gen();
+                m.GenerateCode();
 
             CS.Writer.End();
         }

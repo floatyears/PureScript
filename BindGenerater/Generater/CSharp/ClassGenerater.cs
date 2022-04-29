@@ -30,23 +30,46 @@ namespace Generater
         Dictionary<int, AstNode> retainDic = new Dictionary<int, AstNode>();
         public TokenMapVisitor nodesCollector;
 
-        public ClassGenerater(TypeDefinition type, StreamWriter writer = null)
+        public Dictionary<int, AstNode> TokenMap {  get { return nodesCollector.TokenMap; } }
+
+        private ClassGenerater parent = null;
+        private CSCGenerater compiler = null;
+
+        public ClassGenerater(TypeDefinition type, CSCGenerater compiler)
         {
+            this.compiler = compiler;
             genType = type;
+            Init();
+        }
+
+        public ClassGenerater(TypeDefinition type, ClassGenerater parent = null)
+        {
+            this.parent = parent;
+            genType = type;
+            Init();
+        }
+
+        public void Init() 
+        { 
             RefNameSpace.Add("System");
             RefNameSpace.Add("PureScript.Mono");
             RefNameSpace.Add("System.Runtime.CompilerServices");
             RefNameSpace.Add("System.Runtime.InteropServices");
 
-            if (writer == null)
+            if (parent == null)
             {
-                var filePath = Path.Combine(Binder.OutDir, $"Gen.{TypeFullName()}.cs");
-                CSCGenerater.AdapterWrapperCompiler.AddSource(filePath);
+                var dir = Path.Combine(Binder.OutDir, "Mono_" + genType.Module.Assembly.Name.Name);
+                if (!Directory.Exists(dir))
+                {
+                    Directory.CreateDirectory(dir);
+                }
+                var filePath = Path.Combine(dir, $"Gen.{TypeFullName()}.cs");
+                compiler.AddSource(filePath);
                 FileStream = File.CreateText(filePath);
             }
             else
             {
-                FileStream = writer;
+                FileStream = parent.FileStream;
             }
 
             isCopyOrignType = IsCopyOrignType(genType);
@@ -54,16 +77,16 @@ namespace Generater
             if (isFullRetainType)
                 return;
 
-            if (type.BaseType != null)
-                RefNameSpace.Add(type.BaseType.Namespace);
+            if (genType.BaseType != null)
+                RefNameSpace.Add(genType.BaseType.Namespace);
 
-            foreach (var t in type.NestedTypes)
+            foreach (var t in genType.NestedTypes)
             {
                 if (t.Name.StartsWith("<") || !Utils.Filter(t))
                     continue;
                 if ((t.IsPublic || t.IsNestedPublic) && !Utils.IsObsolete(t))
                 {
-                    var nestGen = new ClassGenerater(t, FileStream);
+                    var nestGen = new ClassGenerater(t, this);
                     nestType[t] = nestGen;
                     RefNameSpace.UnionWith(nestGen.RefNameSpace);
                 }
@@ -81,12 +104,12 @@ namespace Generater
                         {
                             if (Utils.Filter(field.FieldType))
                             {
-                                events.Add(new DelegateGenerater(field));
+                                events.Add(new DelegateGenerater(field, this));
                                 RefNameSpace.Add(field.FieldType.Namespace);
                             }
                         }else
                         {
-                            properties.Add(new PropertyGenerater(field));
+                            properties.Add(new PropertyGenerater(field, this));
                             RefNameSpace.Add(field.FieldType.Namespace);
                         }
                         
@@ -99,7 +122,7 @@ namespace Generater
             {
                 if(Utils.Filter(e))
                 {
-                    events.Add(new DelegateGenerater(e));
+                    events.Add(new DelegateGenerater(e, this));
                     RefNameSpace.Add(e.EventType.Namespace);
                 }
             }
@@ -111,11 +134,11 @@ namespace Generater
                     var pt = prop.PropertyType.Resolve();
                     if (pt.IsDelegate())
                     {
-                        events.Add(new DelegateGenerater(prop));
+                        events.Add(new DelegateGenerater(prop, this));
                     }
                     else
                     {
-                        properties.Add(new PropertyGenerater(prop));
+                        properties.Add(new PropertyGenerater(prop, this));
                         RefNameSpace.Add(prop.PropertyType.Namespace);
                     }
                 }
@@ -139,12 +162,45 @@ namespace Generater
                     CheckInterface(method);
                     if ((Utils.IsVisibleToOthers(method) || genType.IsInterface) && !method.IsGetter && !method.IsSetter && !method.IsAddOn && !method.IsRemoveOn )
                     {
-                        var methodGener = new MethodGenerater(method);
+                        var methodGener = new MethodGenerater(method, this);
                         methods.Add(methodGener);
                         RefNameSpace.UnionWith(Utils.GetNameSpaceRef(method));
                     }
                 }
             }
+        }
+
+        public DllRuntime GetRuntime()
+        {
+            DllRuntime ret = DllRuntime.None;
+            if(compiler != null)
+            {
+                ret = compiler.Runtime;
+            }
+            else
+            {
+                var parent = this.parent;
+                while(parent != null)
+                {
+                    if(parent.parent != null)
+                    {
+                        parent = parent.parent;
+                    }
+                    else
+                    {
+                        break;
+                    }
+                }
+                if(parent != null)
+                {
+                    ret = parent.GetRuntime();
+                }
+            }
+            if(ret == DllRuntime.None)
+            {
+                throw new Exception("compiler must have a runtime");
+            }
+            return ret;
         }
 
         public override string TypeFullName()
@@ -160,15 +216,15 @@ namespace Generater
             CS.Writer.Flush();
             foreach (var t in nestType.Values)
             {
-                t.Gen();
+                t.GenerateCode();
             }
         }
 
-        public override void Gen()
+        public override void GenerateCode()
         {
             using (new CS(new CodeWriter(FileStream)))
             {
-                base.Gen();
+                base.GenerateCode();
 
                 if (isCopyOrignType)
                 {
@@ -203,8 +259,8 @@ namespace Generater
                 //if (!isCopyOrignType)
                 //    CS.Writer.WriteLine($"[WrapperClass(\"{Binder.curModule.Name}\")]", false);
 
-                Utils.TokenMap = nodesCollector.TokenMap;
-                string classDefine = Utils.GetMemberDelcear(genType,stripInterfaceSet);
+                //Utils.TokenMap = nodesCollector.TokenMap;
+                string classDefine = Utils.GetMemberDelcear(genType, nodesCollector.TokenMap, stripInterfaceSet);
                 if(Binder.retainTypes.Contains(genType.FullName))
                     classDefine = classDefine.Replace("internal ", "public ");
 
@@ -232,12 +288,12 @@ namespace Generater
 
                 foreach (var p in properties)
                 {
-                    p.Gen();
+                    p.GenerateCode();
                 }
 
                 foreach(var e in events)
                 {
-                    e.Gen();
+                    e.GenerateCode();
                 }
 
                 if(!hasDefaultConstructor && !genType.IsSealed)
@@ -252,7 +308,7 @@ namespace Generater
 
                 foreach (var m in methods)
                 {
-                    m.Gen();
+                    m.GenerateCode();
                 }
                 
                 GenCopyOrignNodes();
@@ -411,7 +467,7 @@ namespace Generater
                 {
                     var tdDeclear = td.DeclaringType;
                     if (tdDeclear != null && tdDeclear.MetadataToken == genType.MetadataToken)
-                        nestType[td] = new ClassGenerater(td, FileStream);
+                        nestType[td] = new ClassGenerater(td, this);
                     else if(!Utils.Filter(td))
                         CS.Writer.WriteLine($"internal class {td.Name}{{}}", false);
                     else

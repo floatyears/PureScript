@@ -26,3 +26,13 @@
 *.user
 
 ScriptEngine/temp
+DemoProject/Assets/
+DemoProject/build/
+ScriptEngine/Adapter/glue/
+ScriptEngine/Managed_orign/
+ScriptEngine/ScriptEngine.Android/build/
+ScriptEngine/Tools/*.txt
+.vscode/
+ScriptEngine/Managed_il2cpp/Adapter.gen.dll
+ScriptEngine/Managed_il2cpp/
+ScriptEngine/Managed_mono/

@@ -878,7 +878,98 @@ namespace Generater
         {
             return method.IsPublic;// || (method.IsFamilyOrAssembly && method.CustomAttributes.Any(x => x.AttributeType.Name == "VisibleToOtherModulesAttribute"));
         }
-        
+
+        public static bool IsFieldSerializable(FieldDefinition field)
+        {
+            if(field.IsPublic || field.CustomAttributes.Any(x=>x.AttributeType.Name == "SerializeFieldAttribute"))
+            {
+                if(field.HasConstant || field.IsStatic || field.IsInitOnly)
+                {
+                    return false;
+                }
+
+                var dt = field.FieldType;
+                if(dt.IsArray)
+                {
+                    var arrayType = dt as Mono.Cecil.ArrayType;
+                    var eleType = arrayType.ElementType;
+                    if(IsTypeSerializable(eleType))
+                    {
+                        return true;
+                    }
+                    return false;
+                }
+                else
+                {
+                    return IsTypeSerializable(dt);
+                }
+            }
+
+            return false;
+        }
+
+        public static bool IsTypeSerializable(TypeReference type)
+        {
+            var td = type.Resolve();
+            if (!td.IsValueType)
+            {
+                if (td.IsSubclassOf("UnityEngine.Object"))
+                {
+                    return true;
+                }
+                else
+                {
+                    //non-static class which has SerializableAttribute
+                    if (!(td.IsSealed && td.IsAbstract) && td.CustomAttributes.Any(x => x.AttributeType.Name == "SerializableAttribute"))
+                    {
+                        return true;
+                    }
+                    else
+                    {
+                        return false;
+                    }
+                }
+            }
+            else if (td.IsStruct(false))
+            {
+                //Unity doest not support custom struct, use class with SerializableAttribute
+                if (td.Name.StartsWith("UnityEngine."))
+                {
+                    return true;
+                }
+                else
+                {
+                    return false;
+                }
+            }
+            else
+            {
+                if (td.IsString() || td.IsEnum || IsBlittableType(td))
+                {
+                    return true;
+                }
+                return false;
+            }
+        }
+
+        public static bool IsClassSerializable(TypeReference type)
+        {
+            var td = type.Resolve();
+            if(!td.IsClass)
+            {
+                return false;
+            }    
+            if (td.IsSubclassOf("UnityEngine.Object"))
+            {
+                return true;
+            }
+            if (!(td.IsSealed && td.IsAbstract) && td.CustomAttributes.Any(x => x.AttributeType.Name == "SerializableAttribute"))
+            {
+                return true;
+            }
+            return true;
+        }
+
 
         public static int RunCMD(string cmd, string[] args, string workdir = null)
         {
@@ -940,8 +1031,8 @@ namespace Generater
         }
 
 
-        public static Dictionary<int, AstNode> TokenMap;
-        public static string GetMemberDelcear(IMemberDefinition member, HashSet<string> stripInterface = null)
+        //public static Dictionary<int, AstNode> TokenMap;
+        public static string GetMemberDelcear(IMemberDefinition member, Dictionary<int, AstNode> tokenMap = null, HashSet<string> stripInterface = null)
         {
             var method = member as MethodDefinition;
             if(method != null)
@@ -957,7 +1048,7 @@ namespace Generater
             var output = new MemberDeclearVisitor(false, writer, Binder.DecompilerSetting.CSharpFormattingOptions);
             if (stripInterface != null)
                 output.stripInterfaceSet = stripInterface;
-            if(TokenMap.TryGetValue(token, out var map))
+            if(tokenMap != null && tokenMap.TryGetValue(token, out var map))
             {
                 map.AcceptVisitor(output);
             }else

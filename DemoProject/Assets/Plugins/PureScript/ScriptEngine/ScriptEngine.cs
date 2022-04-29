@@ -7,6 +7,9 @@ using UnityEditor;
 #endif
 namespace PureScript
 {
+    /// <summary>
+    /// 这部分代码运行在il2cpp内
+    /// </summary>
     public class ScriptEngine
     {
 #if UNITY_IOS
