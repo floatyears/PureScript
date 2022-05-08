@@ -85,6 +85,13 @@ MonoClass* get_ienumerator_class()
 	return ienumerator_class;
 }
 
+MonoClass* get_serializable_attribute_class()
+{
+	static MonoClass* serializable_attribute_class;
+	if (serializable_attribute_class == NULL)
+		serializable_attribute_class = mono_search_class("mscorlib.dll", "System", "SerializableAttribute");
+	return serializable_attribute_class;
+}
 
 MonoClass* get_YieldInstruction_class()
 {

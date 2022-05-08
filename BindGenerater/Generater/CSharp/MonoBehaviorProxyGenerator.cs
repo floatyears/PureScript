@@ -56,7 +56,7 @@ namespace Generater
         public void Init()
         {
             RefNameSpace.Add("System");
-            RefNameSpace.Add("PureScriptWrapper");
+            RefNameSpace.Add("PureScriptProxy");
             RefNameSpace.Add("System.Runtime.CompilerServices");
             RefNameSpace.Add("System.Runtime.InteropServices");
 

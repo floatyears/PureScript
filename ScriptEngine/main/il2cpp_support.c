@@ -92,11 +92,42 @@ Il2CppMethodPointer hook_method2(Il2CppClass* klass, const char* method, int32_t
 {
 	MethodInfo* info = il2cpp_class_get_method_from_name(klass, method, param_count);//
 	if (info == NULL)
+	{
 		return NULL;
+	}
 
 	MethodHead* mh = (MethodHead*)info;
 	Il2CppMethodPointer orign = mh->methodPtr;
 	mh->methodPtr = hook;
+	return orign;
+}
+
+Il2CppMethodPointer hook_icall_method(const char* method, Il2CppMethodPointer hook)
+{
+	Il2CppMethodPointer orign = il2cpp_resolve_icall(method);
+	il2cpp_add_internal_call(method, hook);
+	//MethodInfo* info = il2cpp_class_get_method_from_name(klass, method, param_count);//
+	//if (info == NULL)
+	//{
+	//	return NULL;
+	//}
+
+	//MethodHead* mh = (MethodHead*)info;
+	//Il2CppMethodPointer orign = mh->methodPtr;
+	//mh->methodPtr = hook;
+	return orign;
+}
+
+Il2CppMethodPointer il2cpp_get_native_method_ptr(Il2CppClass* klass, const char* method, int32_t param_count)
+{
+	MethodInfo* info = il2cpp_class_get_method_from_name(klass, method, param_count);//
+	if (info == NULL)
+	{
+		return NULL;
+	}
+
+	MethodHead* mh = (MethodHead*)info;
+	Il2CppMethodPointer orign = mh->methodPtr;
 	return orign;
 }
 

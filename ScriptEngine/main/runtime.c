@@ -26,11 +26,7 @@
 #include <stdarg.h>
 
 
-
 //typedef char bool;
-#define false 0
-#define true 1
-
 MonoDomain *g_domain;
 extern char native_library_dir[2048];
 

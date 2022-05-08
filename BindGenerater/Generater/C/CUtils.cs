@@ -210,12 +210,12 @@ namespace Generater.C
         {
             if (!method.HasBody)
                 return false;
-            bool res = false;
+            bool ret = false;
             foreach (var attr in method.CustomAttributes)
             {
                 if (attr.AttributeType.Name == "RequiredByNativeCodeAttribute")
                 {
-                    res = true;
+                    ret = true;
                     break;
                 }
             }
@@ -223,7 +223,7 @@ namespace Generater.C
             //if (!IsUnityObject(method.DeclaringType))
             //    res = false;
 
-        return res;
+            return ret;
         }
 
         public static bool IsEventCallback(MethodDefinition method)
@@ -234,8 +234,8 @@ namespace Generater.C
                     return false;
             }
 
-            bool res = IsNativeCallback(method);
-            if (!res)
+            bool ret = IsNativeCallback(method);
+            if (!ret)
                 return false;
 
             if (!method.HasBody)

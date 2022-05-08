@@ -75,11 +75,14 @@ extern "C"
 
 	MonoString* get_mono_string(Il2CppString* str);
 	Il2CppString* get_il2cpp_string(MonoString* str);
+	MonoArray* get_mono_array_with_serializable(Il2CppArray* array);
 	MonoArray* get_mono_array(Il2CppArray * array);
+	MonoArray* get_mono_array_impl(Il2CppArray* array, bool includeSerializable);
 	Il2CppArray* get_il2cpp_array(MonoArray* array);
 	void copy_array_i2_mono(Il2CppArray* i2_array, MonoArray* mono_array);
 	void copy_il2cpp_struct_to_mono(Il2CppObject* il2cppObj, MonoObject* monoObj);
 	void copy_il2cpp_struct_to_mono_raw(void* il2cppObj, MonoObject* monoObj);
+	void copy_il2cpp_class_data_to_mono(Il2CppObject* i2obj, MonoObject* mobj);
 	void copy_mono_struct_to_il2cpp(MonoObject* monoObj, Il2CppObject* il2cppObj);
 	void copy_mono_struct_to_il2cpp_raw(void* monoData, Il2CppObject* il2cppObj);
 	void get_mono_struct(Il2CppObject* i2struct, MonoObject** monoStruct, Il2CppReflectionType* i2type, int32_t i2size);
@@ -89,27 +92,56 @@ extern "C"
 
 	bool inline is_primitive_il2cpp(const Il2CppType* type)
 	{
+		if (type == NULL)
+		{
+			platform_log("[is_primitive_il2cpp] type is null");
+			return false;
+		}
 		return !type->byref && ((type->type >= IL2CPP_TYPE_BOOLEAN && type->type <= IL2CPP_TYPE_R8) || (type->type >= IL2CPP_TYPE_I && type->type <= IL2CPP_TYPE_U));
 	}
 
+
 	bool inline is_struct_type_il2cpp(const Il2CppType* type)
 	{
+		if (type == NULL)
+		{
+			platform_log("[is_struct_type_il2cpp] type is null");
+			return false;
+		}
 		return !type->byref && type->type == MONO_TYPE_VALUETYPE && !is_primitive_il2cpp(type);
 	}
 
 	bool inline is_primitive(MonoType* type)
 	{
+		if (type == NULL)
+		{
+			platform_log("[is_primitive] type is null");
+			return false;
+		}
 		return !type->byref && ((type->type >= MONO_TYPE_BOOLEAN && type->type <= MONO_TYPE_R8) || (type->type >= MONO_TYPE_I && type->type <= MONO_TYPE_U));
 	}
 
+	int32_t get_primitive_type_size(MonoType* type);
+
 	bool inline is_struct_type(MonoType* type)
 	{
+		if (type == NULL)
+		{
+			platform_log("[is_struct_type] type is null");
+			return false;
+		}
 		return !type->byref && type->type == MONO_TYPE_VALUETYPE && !is_primitive(type);
 	}
 
-	bool inline is_struct(MonoClass* klass);
-	bool inline is_full_value_struct_type(MonoType* type);
-	bool inline is_full_value_struct(MonoClass* klass);
+	bool inline is_struct(MonoClass* klass)
+	{
+		platform_log("check struct1: %s", mono_class_get_name(klass));
+		MonoType* type = mono_class_get_type(klass);
+		return is_struct_type(type);
+	}
+
+	bool is_full_value_struct_type(MonoType* type);
+	bool is_full_value_struct(MonoClass* klass);
 
 	MonoImage* mono_get_image(const char* assembly);
 	MonoClass* mono_get_class(MonoImage* image, const char* _namespace, const char* name);
@@ -125,10 +157,15 @@ extern "C"
 
     //wrapper
     MonoObject* get_mono_wrapper_object(Il2CppObject* il2cpp, MonoClass* m_class);
+	MonoObject* get_mono_wrapper_object_delay_init(Il2CppObject* il2cpp, MonoClass* m_class, bool delay_init);
     Il2CppClass* get_monobehaviour_wrapper_class();
     Il2CppReflectionType* get_monobehaviour_wrapper_rtype();
     void call_wrapper_init(Il2CppObject* il2cpp, MonoObject* mono);
 	bool need_monobehaviour_wrap(const char* asm_name, MonoClass* m_class);
+
+	//proxy
+	Il2CppReflectionType* get_monobehaviour_proxy_rtype();
+	Il2CppClass* get_monobehaviour_proxy_class();
 
 	//Exception
 	MonoException* get_mono_exception(Il2CppException* il2cpp);

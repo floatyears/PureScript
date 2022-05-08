@@ -414,7 +414,7 @@ MonoObject* UnityEngine_GameObject_Internal_AddComponentWithType(MonoObject* obj
 	if (!icall)
 		icall = (AddComponentWithType)il2cpp_resolve_icall("UnityEngine.GameObject::Internal_AddComponentWithType");
 
-	Il2CppObject* il2cppObj = get_il2cpp_object(obj,NULL);
+	Il2CppObject* il2cppObj = get_il2cpp_object(obj, NULL);
 	
 	MonoType* monoType = mono_reflection_type_get_type(type);
 	MonoClass * mclass = mono_class_from_mono_type(monoType);

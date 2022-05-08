@@ -32,6 +32,9 @@ void init_il2cpp();
 
 #endif
 
+#define false 0
+#define true 1
+
 typedef struct Il2CppArrayType Il2CppArrayType;
 typedef struct Il2CppGenericClass Il2CppGenericClass;
 
@@ -78,6 +81,8 @@ Il2CppClass* il2cpp_get_class(Il2CppImage* image, const char* _namespace, const 
 Il2CppClass* il2cpp_search_class(const char* assembly, const char* _namespace, const char* name);
 Il2CppMethodPointer hook_method(const char* assembly, const char* _namespace, const char* name, const char* method, int32_t param_count, Il2CppMethodPointer hook);
 Il2CppMethodPointer hook_method2(Il2CppClass* klass, const char* method, int32_t param_count, Il2CppMethodPointer hook);
+Il2CppMethodPointer hook_icall_method(const char* method, Il2CppMethodPointer hook);
+Il2CppMethodPointer il2cpp_get_native_method_ptr(Il2CppClass* klass, const char* method, int32_t param_count);
 
 Il2CppClass* il2cpp_get_exception_class();
 Il2CppObject * il2cpp_exception_property(Il2CppObject *obj, const char *name, char is_virtual);

@@ -155,8 +155,10 @@ namespace Generater.C
                 {
                     CS.Writer.Start($"Il2CppClass* {GetClassDefine(desc, true)}");
                     CS.Writer.WriteLine("static Il2CppClass* klass");
-                    CS.Writer.WriteLine("if(!klass)", false);
-                    CS.Writer.WriteLine("\t" + $"klass = il2cpp_get_class({GetImageDefine(desc.Assembly, true)},\"{desc.Namespace}\",\"{desc.Name}\")");
+                    CS.Writer.Start("if(!klass)");
+                    CS.Writer.WriteLine($"klass = il2cpp_get_class({GetImageDefine(desc.Assembly, true)},\"{desc.Namespace}\",\"{desc.Name}\")");
+                    CS.Writer.WriteLine($"if(klass == NULL){{ platform_log(\"il2cpp class not found: %s-%s\", \"{desc.Namespace}\", \"{desc.Name}\"); }}");
+                    CS.Writer.End();
                     CS.Writer.WriteLine("return klass");
                     CS.Writer.End();
                 }

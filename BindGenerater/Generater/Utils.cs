@@ -932,7 +932,7 @@ namespace Generater
             }
             else if (td.IsStruct(false))
             {
-                //Unity doest not support custom struct, use class with SerializableAttribute
+                //Unity doest not support custom struct for serialization, use class with SerializableAttribute
                 if (td.Name.StartsWith("UnityEngine."))
                 {
                     return true;
