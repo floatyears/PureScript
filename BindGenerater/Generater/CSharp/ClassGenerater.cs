@@ -3,6 +3,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 
 using ICSharpCode.Decompiler;
 using ICSharpCode.Decompiler.CSharp;
@@ -20,8 +21,8 @@ namespace Generater
         private List<MethodGenerater> methods = new List<MethodGenerater>();
         private Dictionary<TypeDefinition, ClassGenerater> nestType = new Dictionary<TypeDefinition, ClassGenerater>();
         private bool hasDefaultConstructor = false;
-        private bool isCopyOrignType;
-        private bool isFullRetainType;
+        private bool isCopyOrignNodes;
+        private bool isCopyFullOrignalNodes;
         private StreamWriter FileStream;
 
         public HashSet<string> RefNameSpace = new HashSet<string>();
@@ -31,15 +32,19 @@ namespace Generater
         public TokenMapVisitor nodesCollector;
 
         public Dictionary<int, AstNode> TokenMap {  get { return nodesCollector.TokenMap; } }
+        public Dictionary<int, AstNode> RetainDic {  get { return retainDic; } }
+        public TypeDefinition GenType { get { return genType; } }
 
         private ClassGenerater parent = null;
         private CSCGenerater compiler = null;
+
+        private CS curWriter = null;
 
         public ClassGenerater(TypeDefinition type, CSCGenerater compiler)
         {
             this.compiler = compiler;
             genType = type;
-            Init();
+            //Init();
         }
 
         public ClassGenerater(TypeDefinition type, ClassGenerater parent = null)
@@ -55,6 +60,7 @@ namespace Generater
             RefNameSpace.Add("PureScript.Mono");
             RefNameSpace.Add("System.Runtime.CompilerServices");
             RefNameSpace.Add("System.Runtime.InteropServices");
+            RefNameSpace.Add($"Binder.mono.{genType.Module.Name}".Replace(".dll", "").Replace(".", "_"));
 
             if (parent == null)
             {
@@ -72,13 +78,17 @@ namespace Generater
                 FileStream = parent.FileStream;
             }
 
-            isCopyOrignType = IsCopyOrignType(genType);
-            CheckCopyOrignNodes();
-            if (isFullRetainType)
+            isCopyOrignNodes = CheckCopyOrignNodes(genType);
+            GetCopyPartOrignNodes();
+            if (isCopyFullOrignalNodes)
+            {
                 return;
+            }
 
             if (genType.BaseType != null)
+            {
                 RefNameSpace.Add(genType.BaseType.Namespace);
+            }
 
             foreach (var t in genType.NestedTypes)
             {
@@ -92,13 +102,13 @@ namespace Generater
                 }
             }
 
-            if (!isCopyOrignType)
+            if (!isCopyOrignNodes)
             {
                 foreach (FieldDefinition field in genType.Fields)
                 {
                     // if (isFullValueType && !field.IsStatic)
                     //    continue;
-                    if (field.IsPublic)
+                    if (Utils.Filter(field))
                     {
                         if(field.FieldType.Resolve().IsDelegate())
                         {
@@ -138,8 +148,11 @@ namespace Generater
                     }
                     else
                     {
-                        properties.Add(new PropertyGenerater(prop, this));
-                        RefNameSpace.Add(prop.PropertyType.Namespace);
+                        if (!HasProperty(prop))
+                        {
+                            properties.Add(new PropertyGenerater(prop, this));
+                            RefNameSpace.Add(prop.PropertyType.Namespace);
+                        }
                     }
                 }
             }
@@ -158,16 +171,61 @@ namespace Generater
                         
 
                     if (IsCopyOrignNode(method))
-                        continue;
-                    CheckInterface(method);
-                    if ((Utils.IsVisibleToOthers(method) || genType.IsInterface) && !method.IsGetter && !method.IsSetter && !method.IsAddOn && !method.IsRemoveOn )
                     {
-                        var methodGener = new MethodGenerater(method, this);
-                        methods.Add(methodGener);
+                        continue;
+                    }
+                    CheckInterface(method);
+                    if ((Utils.IsVisibleToOthers(method) || Utils.IsInternalCallVisibleToOthers(method)) && !method.IsGetter && !method.IsSetter && !method.IsAddOn && !method.IsRemoveOn && !HasMethod(method))
+                    {
+                        var methodGener = new MethodGenerater(method, this, false, methods);
+                        //methods.Add(methodGener);
                         RefNameSpace.UnionWith(Utils.GetNameSpaceRef(method));
                     }
                 }
             }
+        }
+
+        public void AddMethodCalledByOthers(MethodReference method)
+        {
+            var methodDef = method as MethodDefinition;
+            if (methodDef != null)
+            {
+                //默认会构造一个ctor，不用特殊引用
+                if(methodDef.IsConstructor && methodDef.Parameters.Count == 0)
+                {
+                    return;
+                }
+                if(methodDef.IsGetter || methodDef.IsSetter)
+                {
+                    foreach(var p in methodDef.DeclaringType.Properties)
+                    {
+                        if((p.SetMethod != null && p.SetMethod.FullName == methodDef.FullName) || (p.GetMethod != null && p.GetMethod.FullName == methodDef.FullName))
+                        {
+                            if(!HasProperty(p)) 
+                            {
+                                properties.Add(new PropertyGenerater(p, this, true));
+                                RefNameSpace.Add(p.PropertyType.Namespace);
+                            }
+                            return;
+                        }
+                    }
+                }
+                if (!HasMethod(methodDef))
+                {
+                    new MethodGenerater(methodDef, this, true, methods);
+                    RefNameSpace.UnionWith(Utils.GetNameSpaceRef(methodDef));
+                }
+            }
+        }
+
+        private bool HasMethod(MethodDefinition method)
+        {
+            return methods.Find(x => x.GenMethodDef.FullName == method.FullName) != null || retainDic.ContainsKey(method.MetadataToken.ToInt32());
+        }
+
+        private bool HasProperty(PropertyDefinition property)
+        {
+            return properties.Find(x => x.PropName == property.FullName) != null || retainDic.ContainsKey(property.MetadataToken.ToInt32());
         }
 
         public DllRuntime GetRuntime()
@@ -208,51 +266,77 @@ namespace Generater
             return genType.FullName.Replace("`","_");
         }
 
-        private void GenNested()
+        private void GenNested(CS writer)
         {
             if (nestType.Count <= 0)
+            {
                 return;
+            }
 
-            CS.Writer.Flush();
             foreach (var t in nestType.Values)
             {
-                t.GenerateCode();
+                t.GenerateCode(writer);
             }
+            writer.CurWriter.Flush();
+
         }
 
-        public override void GenerateCode()
+        public override void GenerateCode(CS writer)
         {
-            using (new CS(new CodeWriter(FileStream)))
+            bool newWriter = false;
+            if(writer == null)
+            {
+                newWriter = true;
+                writer = new CS(new CodeWriter(FileStream));
+            }
+            //using (new CS(new CodeWriter(FileStream)))
             {
                 base.GenerateCode();
 
-                if (isCopyOrignType)
+                if (isCopyOrignNodes)
                 {
-                    CopyType(genType);
-                    CS.Writer.EndAll();
-                    if (!genType.IsStruct() || isFullRetainType)
+                    GenerateFullOriginalNodes();
+                    if (newWriter)
+                    {
+                        writer.CurWriter.EndAll();
+                    }
+                    else
+                    {
+                        if (genType.IsNested) //这里完全copy，不用手动end
+                        {
+                            //writer.CurWriter.End();
+                        }
+                    }
+                    //if (!genType.IsStruct() || isCopyFullOrignalNodes)
+                    {
+                        if (newWriter)
+                        {
+                            writer.Dispose();
+                        }
                         return;
+                    }
                 }
 
                 if(!genType.IsNested)
                 {
-                    if(!isCopyOrignType)
+                    if(!isCopyOrignNodes)
                     {
+                        writer.CurWriter.CreateLinePoint("//namespace");
                         RefNameSpace.ExceptWith(Config.Instance.StripUsing);
                         foreach (var ns in RefNameSpace)
                         {
                             if (!string.IsNullOrEmpty(ns))
                             {
-                                CS.Writer.WriteLine($"using {ns}");
+                                writer.CurWriter.WriteLine($"using {ns}");
                             }
                         }
-                        CS.Writer.WriteLine("using System.Runtime.InteropServices");
-                        CS.Writer.WriteLine("using Object = UnityEngine.Object");
+                        writer.CurWriter.WriteLine("using System.Runtime.InteropServices");
+                        writer.CurWriter.WriteLine("using Object = UnityEngine.Object");
                     }
 
                     if (!string.IsNullOrEmpty(genType.Namespace))
                     {
-                        CS.Writer.Start($"namespace {genType.Namespace}");
+                        writer.CurWriter.Start($"namespace {genType.Namespace}");
                     }
                 }
 
@@ -262,7 +346,9 @@ namespace Generater
                 //Utils.TokenMap = nodesCollector.TokenMap;
                 string classDefine = Utils.GetMemberDelcear(genType, nodesCollector.TokenMap, stripInterfaceSet);
                 if(Binder.retainTypes.Contains(genType.FullName))
+                {
                     classDefine = classDefine.Replace("internal ", "public ");
+                }
 
                 bool isStatic = genType.IsAbstract && genType.IsSealed;
                 if (genType.BaseType != null && !isStatic && !genType.IsStruct())
@@ -271,18 +357,24 @@ namespace Generater
                     {
                         var index = classDefine.IndexOf(":");
                         if (index > 0)
+                        {
                             classDefine = classDefine.Replace(":", ": WObject,");
+                        }
                         else
+                        {
                             classDefine += ": WObject";
+                        }
                     }
                     else
+                    {
                         Binder.AddType(genType.BaseType.Resolve());
+                    }
                 }
 
-                CS.Writer.Start(classDefine);
+                writer.CurWriter.Start(classDefine);
 
 
-                CS.Writer.CreateLinePoint("//member");
+                writer.CurWriter.CreateLinePoint("//member");
                 /*CS.Writer.Start($"internal {genType.Name}(int handle,IntPtr ptr): base(handle, ptr)");
                 CS.Writer.End();*/
 
@@ -296,14 +388,14 @@ namespace Generater
                     e.GenerateCode();
                 }
 
-                if(!hasDefaultConstructor && !genType.IsSealed)
+                if(!hasDefaultConstructor && !genType.IsSealed && !genType.IsInterface)
                 {
-                    CS.Writer.WriteLine($"public {genType.Name}()" + " { }", false);
+                    writer.CurWriter.WriteLine($"public {genType.Name}()" + " { }", false);
                 }
 
                 if(genType.IsClass && !genType.IsValueType && !isStatic)
                 {
-                    CS.Writer.WriteLine($"protected override System.Type GetWType() {{ return typeof({genType.Name}); }}", false);
+                    writer.CurWriter.WriteLine($"protected override System.Type GetWType() {{ return typeof({genType.Name}); }}", false);
                 }
 
                 foreach (var m in methods)
@@ -311,47 +403,63 @@ namespace Generater
                     m.GenerateCode();
                 }
                 
-                GenCopyOrignNodes();
+                GeneratePartOriginalNodes();
 
-                GenNested();
+                GenNested(writer);
 
-                CS.Writer.EndAll();
+                if (newWriter)
+                {
+                    writer.CurWriter.EndAll();
+                }else
+                {
+                    if (genType.IsNested)
+                    {
+                        writer.CurWriter.End();
+                    }
+                }
+            }
+
+            if (newWriter)
+            {
+                writer.Dispose();
             }
         }
 
-        bool IsCopyOrignType(TypeDefinition type)
+        bool CheckCopyOrignNodes(TypeDefinition type)
         {
+            isCopyFullOrignalNodes = Binder.retainTypes.Contains(type.FullName);
+            isCopyFullOrignalNodes |= Binder.retainTypes.Contains(type.Namespace);
 
+            isCopyFullOrignalNodes |= type.DoesSpecificTypeImplementInterface("IEnumerator");
 
-            isFullRetainType = Binder.retainTypes.Contains(type.FullName);
-            isFullRetainType |= Binder.retainTypes.Contains(type.Namespace);
+            isCopyFullOrignalNodes |= Utils.IsAttribute(type);
 
-            isFullRetainType |= type.DoesSpecificTypeImplementInterface("IEnumerator");
+            isCopyFullOrignalNodes |= type.IsStruct();
 
-            isFullRetainType |= Utils.IsAttribute(type);
+            isCopyFullOrignalNodes |= Utils.IsException(type);
             //TODO: interface full retain
-            //isFullRetainType |= type.IsInterface;
+            isCopyFullOrignalNodes |= type.IsInterface;
 
-            if (type.IsEnum || type.IsDelegate() || type.IsInterface || Utils.IsAttribute(type))
+            if (type.IsEnum || type.IsDelegate() ||/* type.IsInterface || */Utils.IsAttribute(type) || type.IsStruct())
                 return true;
 
-            if (Utils.IsFullValueType(type) || isFullRetainType)
+            if (Utils.IsFullValueType(type) || isCopyFullOrignalNodes)
                 return true;
 
             return false;
         }
 
-        void CopyType(TypeDefinition type )
+        void GenerateFullOriginalNodes()
         {
-            bool isNested = type.IsNested;
+            bool isNested = genType.IsNested;
             
             HashSet<string> IgnoreNestType = new HashSet<string>();
 
             //if (!(isNested && IsCopyOrignType(genType.DeclaringType)))
             {
-                var tName = type.FullName.Replace("/", "+");
+                var tName = genType.FullName.Replace("/", "+");
                 var name = new FullTypeName(tName);
-                var decompiler = Binder.GetDecompiler(type.Module.Name);
+                var decompiler = Binder.GetDecompiler(genType.Module.Name);
                 AstNode syntaxTree;
 
                 if (isNested)
@@ -368,12 +476,27 @@ namespace Generater
                 StringWriter w = new StringWriter();
                 CustomOutputVisitor outVisitor;
 
-                if(isFullRetainType)
-                    outVisitor = new CustomOutputVisitor(isNested, w, Binder.DecompilerSetting.CSharpFormattingOptions);
+                if(isCopyFullOrignalNodes)
+                {
+                    if (genType.IsStruct())
+                    {
+                        outVisitor = new StructOutputVisitor(this, decompiler, isNested, w, Binder.DecompilerSetting.CSharpFormattingOptions);
+                    }
+                    else if (genType.IsInterface)
+                    {
+                        outVisitor = new InterfaceOutputVisitor(this, decompiler, isNested, w, Binder.DecompilerSetting.CSharpFormattingOptions);
+                    }
+                    else
+                    {
+                        outVisitor = new CustomOutputVisitor(isNested, w, Binder.DecompilerSetting.CSharpFormattingOptions);
+                    }
+                }
                 else
+                {
                     outVisitor = new BlittablePartOutputVisitor(isNested, w, Binder.DecompilerSetting.CSharpFormattingOptions);
+                }
 
-                outVisitor.isFullRetain = isFullRetainType;
+                outVisitor.isFullRetain = isCopyFullOrignalNodes;
                 outVisitor.checkTypeRefVisitor = new CheckTypeRefVisitor(CheckRefType);
                 bool isStatic = genType.IsAbstract && genType.IsSealed;
                 if (genType.BaseType != null && !isStatic && genType.IsClass)
@@ -383,27 +506,52 @@ namespace Generater
                 }
 
                 syntaxTree.AcceptVisitor(outVisitor);
+
+                if (outVisitor is StructOutputVisitor)
+                {
+                    var structVisitor = outVisitor as StructOutputVisitor;
+                    var tmp1 = new HashSet<string>(structVisitor.NamespaceRef);
+                    tmp1.ExceptWith(RefNameSpace);
+                    if (tmp1.Count > 0)
+                    {
+                        foreach (var t in tmp1)
+                        {
+                            if(!string.IsNullOrEmpty(t))
+                            {
+                                CS.Writer.WriteHead($"using {t}");
+                            }
+                        }
+                    }
+                    RefNameSpace.UnionWith(tmp1);
+
+                    foreach (var m in structVisitor.CalledMethods)
+                    {
+                        Binder.AddMethod(m);
+                    }
+                }
+
                 if (!isNested)
                 {
                     RefNameSpace.UnionWith(outVisitor.nestedUsing);
                     RefNameSpace.ExceptWith(Config.Instance.StripUsing);
                     foreach (var ns in RefNameSpace)
                     {
-                        if(!string.IsNullOrEmpty(ns))
+                        if (!string.IsNullOrEmpty(ns))
+                        {
                             CS.Writer.WriteHead($"using {ns}");
+                        }
                     }
                 }
-                
+
                 var txt = w.ToString();
                 CS.Writer.WriteLine(txt, false);
 
                 AddRefType(outVisitor.InternalTypeRef);
             }
-
         }
 
 
-        void CheckCopyOrignNodes()
+        void GetCopyPartOrignNodes()
         {
             var decompiler = Binder.GetDecompiler(genType.Module.Name);
 
@@ -419,19 +567,62 @@ namespace Generater
             if (!Binder.UnityCoreModuleSet.Contains(genType.Module.Name))
                 return;
 
-            bool inUnsafeNS = genType.Namespace.Contains("LowLevel.Unsafe");
+            bool inUnsafeNS = false; // genType.Namespace.Contains("LowLevel.Unsafe");
 
-            var retainFilter = new RetainFilter(genType.MetadataToken.ToInt32(), decompiler);
+            var retainFilter = new RetainFilter(genType, decompiler);
             retainFilter.TokenMap = nodesCollector.TokenMap;
             retainFilter.InUnsafeNS = inUnsafeNS;
-            retainFilter.isFullValueType = isCopyOrignType;
+            retainFilter.isFullValueType = isCopyOrignNodes;
 
             st.AcceptVisitor(retainFilter);
             retainDic = retainFilter.RetainDic;
 
+            var keys = new List<int>(retainDic.Keys);
+            foreach(var k in keys)
+            {
+                var m = Utils.GetMethodByToken(genType, k);
+                if(m != null && !Utils.FilterStructMethod(m, new List<MethodDefinition>()))
+                {
+                    retainDic.Remove(k);
+                }
+            }
+
             if (retainDic.Count > 0)
+            {
                 RefNameSpace.UnionWith(retainFilter.NamespaceRef);
+            }
+
+            CheckStructMethodsCall();
         }
+
+        private void CheckStructMethodsCall()
+        {
+            if (!genType.IsStruct())
+            {
+                return;
+            }
+
+            var methods = genType.Methods;
+            foreach(var m in methods)
+            {
+                if (m.HasBody)
+                {
+                    foreach(var inst in m.Body.Instructions)
+                    {
+                        if(inst.OpCode.Code == Mono.Cecil.Cil.Code.Call)
+                        {
+                            var cmethod = inst.Operand as MethodReference;
+                            var def = cmethod.Resolve();
+                            if(!def.IsGetter && !def.IsSetter)
+                            {
+                                Binder.AddMethod(cmethod);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         bool IsCopyOrignNode(MemberReference member)
         {
             if (retainDic.Count < 1)
@@ -440,21 +631,25 @@ namespace Generater
             var token = member.MetadataToken.ToInt32();
             return token != 0 && retainDic.ContainsKey(token);
         }
-        void GenCopyOrignNodes()
+
+        void GeneratePartOriginalNodes()
         {
             if (retainDic.Count < 1)
                 return ;
 
-            CS.Writer.WriteLine("// -- copy orign code nodes --");
-            CS.Writer.Flush();
-            var outputVisitor = new CustomOutputVisitor(genType.IsNested,CS.Writer.GetWriter(), Binder.DecompilerSetting.CSharpFormattingOptions);
+            CS.Writer.WriteLine("#region copy orign code nodes", false);
+            var sw = new StringWriter();
+            var outputVisitor = new CustomOutputVisitor(genType.IsNested, sw, Binder.DecompilerSetting.CSharpFormattingOptions);
             foreach (var node in retainDic.Values)
             {
                 node.AcceptVisitor(outputVisitor);
             }
+            CS.Writer.WriteLine(sw.ToString(), false);
 
             AddRefType(outputVisitor.InternalTypeRef);
-            
+
+            CS.Writer.WriteLine("#endregion", false);
+
         }
 
         void AddRefType(HashSet<string> refSet)
@@ -467,14 +662,23 @@ namespace Generater
                 {
                     var tdDeclear = td.DeclaringType;
                     if (tdDeclear != null && tdDeclear.MetadataToken == genType.MetadataToken)
+                    {
                         nestType[td] = new ClassGenerater(td, this);
-                    else if(!Utils.Filter(td))
-                        CS.Writer.WriteLine($"internal class {td.Name}{{}}", false);
+                    }
+                    else if (!Utils.Filter(td))
+                    {
+                        //class define is invalid
+                        CS.Writer.WriteLine($"{(genType.IsPublic ? "public" : "internal")} class {td.Name}{{}}", false);
+                    }
                     else
+                    {
                         Binder.AddType(td);
+                    }
                 }
                 else if (genType.Module.TryGetTypeReference(tName, out var tref))
+                {
                     Binder.AddTypeRef(tref);
+                }
             }
         }
 
@@ -498,10 +702,10 @@ namespace Generater
             if(method.Name == "System.IDisposable.Dispose" && method.Parameters.Count == 0 && !method.IsPublic)
                 stripInterfaceSet.Add("IDisposable");
 
-            if(method.Name == "GetSurrogate" && method.Parameters.Count == 3 && !Utils.Filter(method))
+            if(method.Name == "GetSurrogate" && method.Parameters.Count == 3 && !Utils.Filter(method, GetRuntime()))
                 stripInterfaceSet.Add("ISurrogateSelector");
 
-            if (method.Name == "GetEnumerator" && method.Parameters.Count == 0 && !Utils.Filter(method))
+            if (method.Name == "GetEnumerator" && method.Parameters.Count == 0 && !Utils.Filter(method, GetRuntime()))
                 stripInterfaceSet.Add("IEnumerable");
         }
     }

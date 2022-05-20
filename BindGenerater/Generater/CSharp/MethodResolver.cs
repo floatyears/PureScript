@@ -78,6 +78,11 @@ namespace Generater
             }
         }
 
+        protected string GetParamName(ParameterDefinition parameter)
+        {
+            return Utils.GetParamName(parameter);
+        }
+
         /// <summary>
         /// var res = MonoBind.UnityEngine_GameObject_GetComponent_1(this.Handle, type);
         /// var resObj = ObjectStore.Get<Component>(res);
@@ -91,8 +96,8 @@ namespace Generater
                 var td = param.ParameterType.Resolve();
                 if (td != null && td.IsDelegate())
                 {
-                    var _member = DelegateResolver.LocalMamberName(param.Name, method);
-                    CS.Writer.WriteLine($"{_member} = {param.Name}");
+                    var _member = DelegateResolver.LocalMamberName(GetParamName(param), method);
+                    CS.Writer.WriteLine($"{_member} = {GetParamName(param)}");
                     if (!method.IsStatic)
                         CS.Writer.WriteLine($"ObjectStore.RefMember(this,ref {_member}_ref,{_member})"); // resist gc
                 }
@@ -183,7 +188,7 @@ namespace Generater
             var lastP = method.Parameters.LastOrDefault();
             foreach (var p in method.Parameters)
             {
-                var value = TypeResolver.Resolve(p.ParameterType, method, MemberTypeSlot.Parameter).UnboxAfterMarhsal(p.Name, true);
+                var value = TypeResolver.Resolve(p.ParameterType, method, MemberTypeSlot.Parameter).UnboxAfterMarhsal(GetParamName(p), true);
                 if (p.IsIn)
                     value = value.Replace("ref ", "in ");
 
@@ -426,7 +431,7 @@ namespace Generater
         public static bool IsUnityEventMethod(MethodDefinition _method)
         {
             var firstParam = _method.Parameters.FirstOrDefault()?.ParameterType?.Resolve();
-            if (_method.Parameters.Count == 1 && firstParam.IsDelegate())
+            if (_method.Parameters.Count == 1 && firstParam != null && firstParam.IsDelegate())
             {
                 if (_method.DeclaringType.IsSubclassOf("UnityEngine.Events.UnityEventBase"))
                 {

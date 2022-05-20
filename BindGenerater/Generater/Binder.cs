@@ -46,6 +46,9 @@ namespace Generater
 
             Utils.IgnoreTypeSet.UnionWith(Config.Instance.CSharpIgnorTypes);
 
+            Utils.IgnoreMethodsSet.UnionWith(Config.Instance.CSharpIgnorMethods);
+            Utils.CSharpForceRetainMethods.UnionWith(Config.Instance.CSharpForceRetainMethods);
+
             DecompilerSetting = new DecompilerSettings(LanguageVersion.CSharp7);
             DecompilerSetting.ThrowOnAssemblyResolveErrors = false;
             DecompilerSetting.UseExpressionBodyForCalculatedGetterOnlyProperties = false;
@@ -80,6 +83,7 @@ namespace Generater
                 ReadSymbols = false,
             };
 
+            var curAssem = AssemblyDefinition.ReadAssembly(dllPath, parameters);
             curModule = ModuleDefinition.ReadModule(dllPath, parameters);
             moduleSet.Add(curModule);
             ICallGenerater.AddWrapperAssembly(curModule.Assembly.Name.Name);
@@ -94,6 +98,8 @@ namespace Generater
                 wrapperCompiler.AddReference(refAssembly.Name + ".dll");
             }
             wrapperCompiler.RemoveReference(curModule.Name);
+
+            wrapperCompiler.AddCustomAttributes(curAssem.CustomAttributes, Path.Combine(Binder.OutDir, "Mono_" + curAssem.Name.Name));
 
             moduleTypes = new HashSet<TypeReference>(curModule.Types);
 
@@ -131,8 +137,34 @@ namespace Generater
                 return;
 
             var compiler = CSCGeneraterManager.GetMonoWrapperCompiler(type.Module.Name, false);
-            generaters.Enqueue(new ClassGenerater(type, compiler));
-            
+            var classGenerater = new ClassGenerater(type, compiler);
+            generaters.Enqueue(classGenerater);
+            classGenerater.Init();
+        }
+
+        public static void AddMethod(MethodReference method)
+        {
+            var type = method.DeclaringType;
+            if (type == null || !moduleTypes.Contains(type))
+                return;
+
+            if (!types.ContainsKey(type.FullName))
+            {
+                AddType(type.Resolve());
+            }
+
+            ClassGenerater generater = null;
+            foreach (var x in generaters)
+            {
+                if(x is ClassGenerater && (x as ClassGenerater).GenType == type)
+                {
+                    generater = x as ClassGenerater;
+                }
+            }
+            if (generater != null)
+            {
+                generater.AddMethodCalledByOthers(method);
+            }
         }
 
         public static void AddTypeRef(TypeReference type)

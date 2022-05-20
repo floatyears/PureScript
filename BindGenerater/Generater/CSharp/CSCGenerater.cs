@@ -18,6 +18,7 @@ namespace Generater
         public static string[] addtionRef = new string[]
         {
             "mscorlib.dll",
+            "System.dll",
             //"UnityEngine.CoreModule.dll",
             //"PureScript.dll",
         };
@@ -198,9 +199,10 @@ namespace Generater
 
     public enum DllRuntime
     {
-        None,
-        Mono,
-        IL2Cpp,
+        None = 0,
+        Mono = 0x1,
+        IL2Cpp = 0x2,
+        MonoAndIL2Cpp = 0x3,
     }
 
     public class CSCGenerater 
@@ -219,9 +221,9 @@ namespace Generater
             dllRefDir = dir;
         }
 
-        public CSCGenerater(string targetName, DllRuntime runtime, string refDir)
+        public CSCGenerater(string destPath, DllRuntime runtime, string refDir)
         {
-            outName = Path.GetFullPath(targetName);
+            outName = Path.GetFullPath(destPath);
             Runtime = runtime;
             dllRefDir = refDir;
         }
@@ -229,6 +231,27 @@ namespace Generater
         public void SetRuntime(DllRuntime runtime)
         {
             Runtime = runtime;
+        }
+
+        public void AddCustomAttributes(Mono.Collections.Generic.Collection<CustomAttribute> customAttributes, string sourceDir)
+        {
+            var assemblyInfo = Path.Combine(sourceDir, "AssemblyInfo.cs");
+            var writer = new CodeWriter(File.CreateText(assemblyInfo), Runtime == DllRuntime.Mono ? CodeWriter.CodeWriterType.MonoBind : CodeWriter.CodeWriterType.UnityBind);
+            writer.WriteLine("using System.Runtime.CompilerServices");
+            writer.WriteLine("using UnityEngine");
+
+            foreach (var attr in customAttributes)
+            {
+                if(attr.AttributeType.Name == "InternalsVisibleToAttribute")
+                {
+                    if(attr.ConstructorArguments.Count > 0)
+                    {
+                        writer.WriteLine($"[assembly: InternalsVisibleTo(\"{attr.ConstructorArguments[0].Value}\")]", false);
+                    }
+                }
+            }
+            writer.Flush();
+            AddSource(assemblyInfo);
         }
 
         public void AddReference(string target)

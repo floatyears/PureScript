@@ -5,6 +5,7 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading.Tasks;
 using Generater;
+using Mono.Cecil;
 using ICSharpCode.Decompiler.CSharp;
 using ICSharpCode.Decompiler.CSharp.OutputVisitor;
 using ICSharpCode.Decompiler.CSharp.Resolver;
@@ -15,7 +16,7 @@ using ICSharpCode.Decompiler.TypeSystem;
 using AstAttribute = ICSharpCode.Decompiler.CSharp.Syntax.Attribute;
 
 
-public class RetainFilter :DepthFirstAstVisitor<bool>
+public class RetainFilter : DepthFirstAstVisitor<bool>
 {
     public Dictionary<int, AstNode> RetainDic = new Dictionary<int, AstNode>();
     public HashSet<string> NamespaceRef = new HashSet<string>();
@@ -26,12 +27,14 @@ public class RetainFilter :DepthFirstAstVisitor<bool>
     private string curTypeName;
     public bool InUnsafeNS;
     public bool isFullValueType;
+    public TypeDefinition typeDefinition;
 
 
-    public RetainFilter(int tarTypeToken, CSharpDecompiler decompiler)
+    public RetainFilter(TypeDefinition type, CSharpDecompiler decompiler)
     {
+        typeDefinition = type;
         module = decompiler.TypeSystem.MainModule;
-        targetTypeToken = tarTypeToken;
+        targetTypeToken = type.MetadataToken.ToInt32();
     }
 
     // return true if need Wrap
@@ -129,7 +132,7 @@ public class RetainFilter :DepthFirstAstVisitor<bool>
         if (retain)
         {
             var res = indexerDeclaration.Resolve() as MemberResolveResult;
-            RetainDic[res.Member.MetadataToken.GetHashCode()] = indexerDeclaration;
+            RetainDic[res.Member.MetadataToken.GetHashCode()] = indexerDeclaration; 
             RequiredNamespaceCollector.CollectNamespaces(res.Member, module, NamespaceRef);
         }
 

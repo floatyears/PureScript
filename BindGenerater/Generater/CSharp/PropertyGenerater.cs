@@ -21,25 +21,30 @@ namespace Generater
 
         List<MethodGenerater> methods = new List<MethodGenerater>();
 
-        public PropertyGenerater(PropertyDefinition property, ClassGenerater parent)
+        public string PropName { get { return genProperty != null ? genProperty.FullName : string.Empty; } }
+
+        private bool isCalledByOthers = false;
+
+        public PropertyGenerater(PropertyDefinition property, ClassGenerater parent, bool calledBy = false)
         {
+            isCalledByOthers = calledBy;
             genProperty = property;
             classGenerater = parent;
-            if (genProperty.GetMethod != null && genProperty.GetMethod.IsPublic )
+            if (genProperty.GetMethod != null && (genProperty.GetMethod.IsPublic || isCalledByOthers))
             {
                 isStatic = genProperty.GetMethod.IsStatic;
                 isAbstract = genProperty.GetMethod.IsAbstract;
                 isOverride = genProperty.GetMethod.IsOverride();
                 isVirtual = genProperty.GetMethod.IsVirtual && !genProperty.DeclaringType.IsValueType;
-                methods.Add(new MethodGenerater(genProperty.GetMethod, parent));
+                methods.Add(new MethodGenerater(genProperty.GetMethod, parent, isCalledByOthers));
             }
-            if (genProperty.SetMethod != null && genProperty.SetMethod.IsPublic )
+            if (genProperty.SetMethod != null && (genProperty.SetMethod.IsPublic || isCalledByOthers))
             {
                 isStatic = genProperty.SetMethod.IsStatic;
                 isAbstract = genProperty.SetMethod.IsAbstract;
                 isOverride = genProperty.SetMethod.IsOverride();
                 isVirtual = genProperty.SetMethod.IsVirtual && !genProperty.DeclaringType.IsValueType;
-                methods.Add(new MethodGenerater(genProperty.SetMethod, parent));
+                methods.Add(new MethodGenerater(genProperty.SetMethod, parent, isCalledByOthers));
             }
 
         }
@@ -93,7 +98,7 @@ namespace Generater
 
 
 
-        public override void GenerateCode()
+        public override void GenerateCode(CS writer = null)
         {
             base.GenerateCode();
             if (!isConst && methods.Count < 1)

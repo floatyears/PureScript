@@ -16,6 +16,16 @@ namespace Generater
         public HashSet<string> IgnoreAssemblySet;
 
         /// <summary>
+        /// 强制保留的函数
+        /// </summary>
+        public HashSet<string> CSharpForceRetainMethods;
+
+        /// <summary>
+        /// 不支持的一些函数
+        /// </summary>
+        public HashSet<string> CSharpIgnorMethods;
+
+        /// <summary>
         /// 黑名单，排除一些不支持的类型，这里是匹配规则，即可以排除整个命名空间，如：UnityEditor / UnityEngine.TestTools
         /// </summary>
         public HashSet<string> CSharpIgnorTypes;

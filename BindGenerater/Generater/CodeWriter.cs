@@ -15,14 +15,19 @@ namespace Generater
         private static Stack<CodeWriter> writers = new Stack<CodeWriter>();
         public static CodeWriter Writer { get { return writers.Peek(); } }
         private bool AutoFlush = false;
+
+        public CodeWriter CurWriter { private set; get; }
+
         public CS(CodeWriter writer, bool autoFlush = true)
         {
+            CurWriter = writer;
             writers.Push(writer);
             AutoFlush = autoFlush;
         }
 
         public void Dispose()
         {
+            CurWriter = null;
             var writer = writers.Pop();
             if (AutoFlush)
                 writer.Flush();
@@ -55,7 +60,7 @@ namespace Generater
     public class CodeWriter
     {
         public enum CodeWriterType
-        { 
+        {
             MonoBind,
             UnityBind,
         }
@@ -72,8 +77,8 @@ namespace Generater
 
         private Stack<LinePointer> pointers = new Stack<LinePointer>();
         private Dictionary<string, LinePointer> pointerDic = new Dictionary<string, LinePointer>();
-        
-        public CodeWriterType WriterType { get; private set; }  
+
+        public CodeWriterType WriterType { get; private set; }
 
         public CodeWriter(TextWriter _writer, CodeWriterType writerType = CodeWriterType.MonoBind)
         {
@@ -87,7 +92,7 @@ namespace Generater
         public void Write(string str)
         {
             if (lines.Count == 0)
-                WriteLine(str,false);
+                WriteLine(str, false);
             else
                 pointer.Last().Value.Write(str);
         }
@@ -105,7 +110,7 @@ namespace Generater
             if (endCode)
                 str = str + _eol;
 
-            pointer.Move(lines.AddAfter(pointer.Last(),new Line(str,deeps)));
+            pointer.Move(lines.AddAfter(pointer.Last(), new Line(str, deeps)));
         }
 
         public void WritePreviousLine(string str, bool endCode = true)
@@ -118,7 +123,7 @@ namespace Generater
             else
             {
                 var lastLine = pointer.Last();
-                if(lastLine.Value.Code.Equals(_start))
+                if (lastLine.Value.Code.Equals(_start))
                     WriteLine(str, false);
                 else
                 {
@@ -128,7 +133,7 @@ namespace Generater
                     lines.AddBefore(pointer.Last(), new Line(str, pd));
                 }
             }
-                
+
         }
 
         public void WriteHead(string str, bool endCode = true)
@@ -145,28 +150,28 @@ namespace Generater
         public void Start(string str = null)
         {
             if (str != null)
-                WriteLine(str,false);
+                WriteLine(str, false);
 
-                WriteLine(_start,false);
+            WriteLine(_start, false);
             deeps++;
         }
 
         public void End(bool newLine = true)
         {
             deeps--;
-            WriteLine(_end,false);
+            WriteLine(_end, false);
         }
 
         public void EndAll(bool newLine = true)
         {
             int count = deeps;
-            for(int i= 0;i< count; i++)
+            for (int i = 0; i < count; i++)
                 End(newLine);
 
             Flush();
         }
 
-        public LinePointer CreateLinePoint(string name,bool previous = false)
+        public LinePointer CreateLinePoint(string name, bool previous = false)
         {
             var line = new Line("", deeps);
             LinkedListNode<Line> node;

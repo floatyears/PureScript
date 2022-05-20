@@ -1,14 +1,13 @@
 
 #if RUNTIME_IOS
 #include "runtime.h"
- extern void *mono_aot_module_Assembly_CSharp_info;
  extern void *mono_aot_module_Mono_Security_info;
- extern void *mono_aot_module_System_Configuration_info;
+ extern void *mono_aot_module_mscorlib_info;
  extern void *mono_aot_module_System_Core_info;
- extern void *mono_aot_module_System_Diagnostics_StackTrace_info;
- extern void *mono_aot_module_System_Globalization_Extensions_info;
- extern void *mono_aot_module_System_Xml_info;
  extern void *mono_aot_module_System_info;
+ extern void *mono_aot_module_Adapter_wrapper_info;
+ extern void *mono_aot_module_ThirdParty_info;
+ extern void *mono_aot_module_Unity_Timeline_info;
  extern void *mono_aot_module_UnityEngine_AIModule_info;
  extern void *mono_aot_module_UnityEngine_AndroidJNIModule_info;
  extern void *mono_aot_module_UnityEngine_AnimationModule_info;
@@ -16,39 +15,32 @@
  extern void *mono_aot_module_UnityEngine_AudioModule_info;
  extern void *mono_aot_module_UnityEngine_CoreModule_info;
  extern void *mono_aot_module_UnityEngine_DirectorModule_info;
- extern void *mono_aot_module_UnityEngine_GameCenterModule_info;
  extern void *mono_aot_module_UnityEngine_GridModule_info;
+ extern void *mono_aot_module_UnityEngine_ImageConversionModule_info;
  extern void *mono_aot_module_UnityEngine_IMGUIModule_info;
  extern void *mono_aot_module_UnityEngine_InputLegacyModule_info;
- extern void *mono_aot_module_UnityEngine_InputModule_info;
  extern void *mono_aot_module_UnityEngine_ParticleSystemModule_info;
  extern void *mono_aot_module_UnityEngine_Physics2DModule_info;
  extern void *mono_aot_module_UnityEngine_PhysicsModule_info;
  extern void *mono_aot_module_UnityEngine_SharedInternalsModule_info;
- extern void *mono_aot_module_UnityEngine_SubsystemsModule_info;
- extern void *mono_aot_module_UnityEngine_TerrainModule_info;
+ extern void *mono_aot_module_UnityEngine_SpriteShapeModule_info;
  extern void *mono_aot_module_UnityEngine_TextRenderingModule_info;
  extern void *mono_aot_module_UnityEngine_TilemapModule_info;
+ extern void *mono_aot_module_UnityEngine_UI_info;
  extern void *mono_aot_module_UnityEngine_UIElementsModule_info;
+ extern void *mono_aot_module_UnityEngine_UIElementsNativeModule_info;
  extern void *mono_aot_module_UnityEngine_UIModule_info;
  extern void *mono_aot_module_UnityEngine_UnityWebRequestModule_info;
- extern void *mono_aot_module_UnityEngine_VFXModule_info;
- extern void *mono_aot_module_UnityEngine_VRModule_info;
- extern void *mono_aot_module_UnityEngine_VideoModule_info;
- extern void *mono_aot_module_UnityEngine_XRModule_info;
- extern void *mono_aot_module_UnityEngine_info;
- extern void *mono_aot_module_mscorlib_info;
- extern void *mono_aot_module_netstandard_info;
+ extern void *mono_aot_module_UnityEngine_UnityWebRequestWWWModule_info;
 void mono_ios_register_modules(void)
 {
-	mono_aot_register_module(mono_aot_module_Assembly_CSharp_info);
 	mono_aot_register_module(mono_aot_module_Mono_Security_info);
-	mono_aot_register_module(mono_aot_module_System_Configuration_info);
+	mono_aot_register_module(mono_aot_module_mscorlib_info);
 	mono_aot_register_module(mono_aot_module_System_Core_info);
-	mono_aot_register_module(mono_aot_module_System_Diagnostics_StackTrace_info);
-	mono_aot_register_module(mono_aot_module_System_Globalization_Extensions_info);
-	mono_aot_register_module(mono_aot_module_System_Xml_info);
 	mono_aot_register_module(mono_aot_module_System_info);
+	mono_aot_register_module(mono_aot_module_Adapter_wrapper_info);
+	mono_aot_register_module(mono_aot_module_ThirdParty_info);
+	mono_aot_register_module(mono_aot_module_Unity_Timeline_info);
 	mono_aot_register_module(mono_aot_module_UnityEngine_AIModule_info);
 	mono_aot_register_module(mono_aot_module_UnityEngine_AndroidJNIModule_info);
 	mono_aot_register_module(mono_aot_module_UnityEngine_AnimationModule_info);
@@ -56,29 +48,23 @@ void mono_ios_register_modules(void)
 	mono_aot_register_module(mono_aot_module_UnityEngine_AudioModule_info);
 	mono_aot_register_module(mono_aot_module_UnityEngine_CoreModule_info);
 	mono_aot_register_module(mono_aot_module_UnityEngine_DirectorModule_info);
-	mono_aot_register_module(mono_aot_module_UnityEngine_GameCenterModule_info);
 	mono_aot_register_module(mono_aot_module_UnityEngine_GridModule_info);
+	mono_aot_register_module(mono_aot_module_UnityEngine_ImageConversionModule_info);
 	mono_aot_register_module(mono_aot_module_UnityEngine_IMGUIModule_info);
 	mono_aot_register_module(mono_aot_module_UnityEngine_InputLegacyModule_info);
-	mono_aot_register_module(mono_aot_module_UnityEngine_InputModule_info);
 	mono_aot_register_module(mono_aot_module_UnityEngine_ParticleSystemModule_info);
 	mono_aot_register_module(mono_aot_module_UnityEngine_Physics2DModule_info);
 	mono_aot_register_module(mono_aot_module_UnityEngine_PhysicsModule_info);
 	mono_aot_register_module(mono_aot_module_UnityEngine_SharedInternalsModule_info);
-	mono_aot_register_module(mono_aot_module_UnityEngine_SubsystemsModule_info);
-	mono_aot_register_module(mono_aot_module_UnityEngine_TerrainModule_info);
+	mono_aot_register_module(mono_aot_module_UnityEngine_SpriteShapeModule_info);
 	mono_aot_register_module(mono_aot_module_UnityEngine_TextRenderingModule_info);
 	mono_aot_register_module(mono_aot_module_UnityEngine_TilemapModule_info);
+	mono_aot_register_module(mono_aot_module_UnityEngine_UI_info);
 	mono_aot_register_module(mono_aot_module_UnityEngine_UIElementsModule_info);
+	mono_aot_register_module(mono_aot_module_UnityEngine_UIElementsNativeModule_info);
 	mono_aot_register_module(mono_aot_module_UnityEngine_UIModule_info);
 	mono_aot_register_module(mono_aot_module_UnityEngine_UnityWebRequestModule_info);
-	mono_aot_register_module(mono_aot_module_UnityEngine_VFXModule_info);
-	mono_aot_register_module(mono_aot_module_UnityEngine_VRModule_info);
-	mono_aot_register_module(mono_aot_module_UnityEngine_VideoModule_info);
-	mono_aot_register_module(mono_aot_module_UnityEngine_XRModule_info);
-	mono_aot_register_module(mono_aot_module_UnityEngine_info);
-	mono_aot_register_module(mono_aot_module_mscorlib_info);
-	mono_aot_register_module(mono_aot_module_netstandard_info);
+	mono_aot_register_module(mono_aot_module_UnityEngine_UnityWebRequestWWWModule_info);
 }
 #endif
 
