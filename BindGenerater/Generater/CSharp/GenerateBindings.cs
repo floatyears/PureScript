@@ -65,7 +65,11 @@ namespace Generater
             {
 
                 foreach (var ns in nsSet)
+                {
                     CS.Writer.WriteLine($"using {ns}");
+                }
+
+                CS.Writer.Start($"namespace {Name.Replace(".cs", "").Replace(".", "_")}");
 
                 GenDefines(true);
 
@@ -227,8 +231,11 @@ namespace Generater
 
         public static void AddMethod(MethodDefinition method)
         {
-            il2cppGenerater.AddMethod(method);
-            monoWrapGenerater.AddMethod(method);
+            if(Utils.Filter(method, DllRuntime.IL2Cpp))
+            {
+                il2cppGenerater.AddMethod(method);
+                monoWrapGenerater.AddMethod(method);
+            }
         }
 
         public static void AddDelegateDefine(string defineStr, string wrapDefineStr)

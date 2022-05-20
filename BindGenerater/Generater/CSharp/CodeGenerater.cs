@@ -10,7 +10,7 @@ namespace Generater
         {
             return "";
         }
-        public virtual void GenerateCode()
+        public virtual void GenerateCode(CS writer = null)
         {
 
         }

@@ -137,7 +137,7 @@ namespace Generater
 			}
 		}
              */
-        public override void GenerateCode()
+        public override void GenerateCode(CS writer = null)
         {
             if(genProxyDelegate)
             {

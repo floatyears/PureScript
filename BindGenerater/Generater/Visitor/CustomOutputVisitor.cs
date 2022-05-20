@@ -4,6 +4,7 @@ using ICSharpCode.Decompiler.CSharp.Syntax;
 using ICSharpCode.Decompiler.CSharp.Transforms;
 using ICSharpCode.Decompiler.Semantics;
 using ICSharpCode.Decompiler.TypeSystem;
+using ICSharpCode.Decompiler.CSharp;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -25,7 +26,7 @@ public class CustomOutputVisitor : CSharpOutputVisitor
 
     public bool AddWObject = false;
     public bool isFullRetain = false;
-    string curTypeName = null;
+    protected string curTypeName = null;
 
     public CheckTypeRefVisitor checkTypeRefVisitor;
     public CustomOutputVisitor(bool _isNested, TextWriter textWriter, CSharpFormattingOptions formattingPolicy) : base(textWriter, formattingPolicy)
@@ -114,7 +115,8 @@ public class CustomOutputVisitor : CSharpOutputVisitor
             var res = t.Annotation<ResolveResult>();
             var td = res.Type.GetDefinition();
             var fullName = td == null ? res.Type.FullName : td.FullTypeName.ReflectionName;
-            if ((res.Type.Kind == TypeKind.Interface && !res.Type.Namespace.StartsWith("System") && !Binder.retainTypes.Contains(fullName)) || stripInterfaceSet.Contains(res.Type.Name))
+            //struct的接口不进行裁剪
+            if ((res.Type.Kind == TypeKind.Interface && typeDeclaration.ClassType != ClassType.Struct && !res.Type.Namespace.StartsWith("System") && !Binder.retainTypes.Contains(fullName)) || stripInterfaceSet.Contains(res.Type.Name))
                 dList.Add(t);
         }
         foreach (var t in dList)
@@ -135,7 +137,8 @@ public class CustomOutputVisitor : CSharpOutputVisitor
     {
         if (!string.IsNullOrEmpty(curTypeName) && !isFullRetain)
             return;
-
+        //nested type
+        var prevName = curTypeName;
         curTypeName = typeDeclaration.Name;
         var type = typeDeclaration.Annotation<ResolveResult>().Type;
         if (IgnoreNestType.Contains(type.Name))
@@ -144,6 +147,7 @@ public class CustomOutputVisitor : CSharpOutputVisitor
         ResolveTypeDeclear(typeDeclaration);
 
         base.VisitTypeDeclaration(typeDeclaration);
+        curTypeName = prevName;
     }
 
     public override void VisitMethodDeclaration(MethodDeclaration methodDeclaration)
@@ -162,15 +166,196 @@ public class CustomOutputVisitor : CSharpOutputVisitor
     public override void VisitSimpleType(SimpleType simpleType)
     {
         var res = simpleType.Resolve() as TypeResolveResult;
-        if(res != null )
+        if (res != null)
         {
             var td = res.Type.GetDefinition();
-            if(td != null && !td.Namespace.StartsWith("System")) 
+            if (td != null && !td.Namespace.StartsWith("System"))
                 InternalTypeRef.Add(td.FullTypeName.ReflectionName);
         }
         base.VisitSimpleType(simpleType);
     }
 }
+
+public class StructOutputVisitor : CustomOutputVisitor
+{
+    public HashSet<string> NamespaceRef = new HashSet<string>();
+    public List<Mono.Cecil.MethodDefinition> CalledMethods = new List<Mono.Cecil.MethodDefinition>();
+    //public HashSet<Mono.Cecil.MethodDefinition> CopyedMethods = new HashSet<Mono.Cecil.MethodDefinition>();
+
+    ClassGenerater classGenerater;
+    private MetadataModule module;
+
+    public StructOutputVisitor(ClassGenerater generater, CSharpDecompiler decompiler, bool _isNested, TextWriter textWriter, CSharpFormattingOptions formattingPolicy) : base(_isNested, textWriter, formattingPolicy)
+    {
+        classGenerater = generater;
+        module = decompiler.TypeSystem.MainModule;
+    }
+
+    public override void VisitFieldDeclaration(FieldDeclaration fieldDeclaration)
+    {
+
+        //if (fieldDeclaration.HasModifier(Modifiers.Static) && !fieldDeclaration.HasModifier(Modifiers.Readonly))
+        //    return;
+
+        //if (fieldDeclaration.HasModifier(Modifiers.Static) && fieldDeclaration.HasModifier(Modifiers.Readonly) && !fieldDeclaration.HasModifier(Modifiers.Public))
+        //    return;
+
+        base.VisitFieldDeclaration(fieldDeclaration);
+    }
+
+    public override void VisitIndexerDeclaration(IndexerDeclaration indexerDeclaration)
+    {
+        base.VisitIndexerDeclaration(indexerDeclaration);
+    }
+
+    public override void VisitConstructorDeclaration(ConstructorDeclaration constructorDeclaration)
+    {
+        var curType = classGenerater.GenType;
+        if (curTypeName != classGenerater.GenType.Name)
+        {
+            foreach (var nt in classGenerater.GenType.NestedTypes)
+            {
+                if (nt.Name == curTypeName)
+                {
+                    curType = nt;
+                }
+            }
+        }
+        var m = Utils.GetMethodByToken(curType, constructorDeclaration.GetToken());
+        if (Utils.FilterStructMethod(m, CalledMethods))
+        {
+            base.VisitConstructorDeclaration(constructorDeclaration);
+        }
+        else
+        {
+            CalledMethods.Clear();
+        }
+    }
+
+    public override void VisitOperatorDeclaration(OperatorDeclaration operatorDeclaration)
+    {
+        base.VisitOperatorDeclaration(operatorDeclaration);
+    }
+
+    public override void VisitMethodDeclaration(MethodDeclaration methodDeclaration)
+    {
+        //if (classGenerater.RetainDic.ContainsKey(methodDeclaration.GetToken()))
+        //{
+        //    return;
+        //}
+        var curType = classGenerater.GenType;
+        if (curTypeName != classGenerater.GenType.Name)
+        {
+            foreach (var nt in classGenerater.GenType.NestedTypes)
+            {
+                if(nt.Name == curTypeName)
+                {
+                    curType = nt;
+                }
+            }
+        }
+        var m = Utils.GetMethodByToken(curType, methodDeclaration.GetToken());
+        if (Utils.FilterStructMethod(m, CalledMethods))
+        {
+            VisitMethod(methodDeclaration);
+        } 
+        else if (m.IsPublic)
+        {
+            var strWriter = new StringWriter();
+            using (new CS(new CodeWriter(strWriter)))
+            {
+                var methodGen = new MethodGenerater(m, classGenerater);
+                methodGen.GenerateCode();
+            }
+
+            writer.WritePrimitiveType(strWriter.ToString());
+        }
+    }
+
+    private void VisitMethod(MethodDeclaration methodDeclaration)
+    {
+        var member = methodDeclaration.Resolve() as MemberResolveResult;
+        RequiredNamespaceCollector.CollectNamespaces(member.Member, module, NamespaceRef);
+        base.VisitMethodDeclaration(methodDeclaration);
+        return;
+    }
+
+
+    public override void VisitPropertyDeclaration(PropertyDeclaration propertyDeclaration)
+    {
+        base.VisitPropertyDeclaration(propertyDeclaration);
+    }
+    //public override void VisitAttribute(Attribute attribute)
+    //{
+    //    var res = attribute.Type.Resolve() as TypeResolveResult;
+    //    if (res != null)
+    //    {
+    //        var td = res.Type.GetDefinition();
+    //        if (td != null)
+    //        {
+    //            InternalTypeRef.Add(td.FullTypeName.ReflectionName);
+    //        }
+    //    }
+    //    base.VisitAttribute(attribute);
+    //}
+}
+
+public class InterfaceOutputVisitor : CustomOutputVisitor
+{
+    public HashSet<string> NamespaceRef = new HashSet<string>();
+
+    ClassGenerater classGenerater;
+    private MetadataModule module;
+
+    public InterfaceOutputVisitor(ClassGenerater generater, CSharpDecompiler decompiler, bool _isNested, TextWriter textWriter, CSharpFormattingOptions formattingPolicy) : base(_isNested, textWriter, formattingPolicy)
+    {
+        classGenerater = generater;
+        module = decompiler.TypeSystem.MainModule;
+    }
+
+    public override void VisitFieldDeclaration(FieldDeclaration fieldDeclaration)
+    {
+        return;
+    }
+
+    public override void VisitIndexerDeclaration(IndexerDeclaration indexerDeclaration)
+    {
+        return;
+    }
+
+    public override void VisitConstructorDeclaration(ConstructorDeclaration constructorDeclaration)
+    {
+        return;
+    }
+
+    public override void VisitOperatorDeclaration(OperatorDeclaration operatorDeclaration)
+    {
+        base.VisitOperatorDeclaration(operatorDeclaration);
+    }
+
+    public override void VisitMethodDeclaration(MethodDeclaration methodDeclaration)
+    {
+        //var member = methodDeclaration.Resolve() as MemberResolveResult;
+        foreach(var m in classGenerater.GenType.Methods)
+        {
+            if(m.MetadataToken.ToInt32() == methodDeclaration.GetToken() && Utils.Filter(m, classGenerater.GetRuntime()))
+            {
+                base.VisitMethodDeclaration(methodDeclaration);
+            }
+        }
+    }
+    public override void VisitPropertyDeclaration(PropertyDeclaration propertyDeclaration)
+    {
+        foreach (var p in classGenerater.GenType.Properties)
+        {
+            if (p.MetadataToken.ToInt32() == propertyDeclaration.GetToken() && Utils.Filter(p))
+            {
+                base.VisitPropertyDeclaration(propertyDeclaration);
+            }
+        }
+    }
+}
+
 
 public class BlittablePartOutputVisitor : CustomOutputVisitor
 {

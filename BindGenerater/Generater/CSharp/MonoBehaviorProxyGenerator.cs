@@ -146,7 +146,7 @@ namespace Generater
 
         }
 
-        public override void GenerateCode()
+        public override void GenerateCode(CS writer = null)
         {
             using (new CS(new CodeWriter(FileStream)))
             {

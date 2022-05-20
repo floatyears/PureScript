@@ -9,7 +9,7 @@ namespace Generater
     {
         None = 0,
         GeneratedByDelegate = 1,
-        GeneratedByField = 1,
+        GeneratedByField = 2,
     }
 
     public class MethodGenerater : CodeGenerater
@@ -20,15 +20,24 @@ namespace Generater
 
         bool isNotImplement = false;
         ClassGenerater classGenerater;
+        bool isCalledByOthers = false;
+        bool isOnlyExeInMono = false;
 
-        public MethodGenerater(MethodDefinition method, ClassGenerater parent)
+        public MethodDefinition GenMethodDef { get { return genMethod; } }
+
+        public MethodGenerater(MethodDefinition method, ClassGenerater parent, bool isCalledByOthers = false, List<MethodGenerater> methods = null)
         {
             genMethod = method;
             classGenerater = parent;
+            this.isCalledByOthers = isCalledByOthers;
+            if(methods != null)
+            {
+                methods.Add(this);
+            }
             Init();
         }
 
-        public MethodGenerater(MethodDefinition method, ClassGenerater parent, MethodType methodType = MethodType.None)
+        public MethodGenerater(MethodDefinition method, ClassGenerater parent, MethodType methodType)
         {
             genMethod = method;
             this.methodType = methodType;
@@ -36,19 +45,65 @@ namespace Generater
             Init();
         }
 
-        private void Init()
+        private void Init() 
         {
-            isNotImplement = !Utils.Filter(genMethod);
+            //非public的函数或者internal type的public函数只能在mono内
+            isOnlyExeInMono = false;
+            if (genMethod.IsInternalCall)
+            {
+                isOnlyExeInMono = true;
+            }
+            else 
+            { 
+                //作为binder层的优化，如果只调用了internal call，则可以不通过binder
+                var calledMethods = new List<MethodDefinition>();
+                if (genMethod.IsPublic)
+                {
+                    if(genMethod.IsSetter || genMethod.IsGetter)
+                    {
+
+                    }else
+                    {
+                        isOnlyExeInMono = Utils.CheckMethodOnlyCallInternal(genMethod, calledMethods);
+                        if (calledMethods.Count(x => x.IsInternalCall) > 1)
+                        {
+
+                        }
+                    }
+                }
+                else
+                {
+                    isOnlyExeInMono = Utils.CheckMethodNoAffectsToSelf(genMethod, calledMethods);
+                }
+                if (isOnlyExeInMono)
+                {
+                    foreach (var m in calledMethods)
+                    {
+                        Binder.AddMethod(m);
+                    }
+                }
+            }
+            
+            isNotImplement = !Utils.Filter(genMethod, classGenerater.GetRuntime());
 
             isNotImplement |= genMethod.IsConstructor && genMethod.DeclaringType.IsSubclassOf("UnityEngine.Component"); // UnityEngine.Component cant be new..
 
-            if (isNotImplement)//maybe generate a empty method?
-                return;
 
-            if (!Utils.IsVisibleToOthers(genMethod) && !genMethod.DeclaringType.IsInterface)
+            if (isNotImplement)//maybe generate a empty method?
+            {
                 return;
+            }
+
+
+            if (!CheckMethodNeedGen())
+            {
+                return;
+            }
+
             if (genMethod.IsConstructor && genMethod.DeclaringType.IsAbstract)
+            {
                 return;
+            }
 
             foreach (var p in genMethod.Parameters)
             {
@@ -57,19 +112,36 @@ namespace Generater
             }
             Binder.AddType(genMethod.ReturnType.Resolve());
 
-            if (!genMethod.IsAbstract && !isNotImplement)
+            foreach(var gp in genMethod.GenericParameters)
+            {
+                foreach(var c in gp.Constraints)
+                {
+                    Binder.AddType(c.ConstraintType.Resolve());
+                }
+            }
+
+            //binding的函数只能是public
+            //所有通过isCalledByOthers的函数，都不能通过bind层进行调用，只能在mono层内部调用
+            if (!genMethod.IsAbstract && !isNotImplement && Utils.IsVisibleToOthers(genMethod))
+            {
                 GenerateBindings.AddMethod(genMethod);
+            }
         }
 
-        public override void GenerateCode()
+        private bool CheckMethodNeedGen()
         {
-            if (isNotImplement)
+            return (isCalledByOthers || Utils.IsInternalCallVisibleToOthers(genMethod) || Utils.IsVisibleToOthers(genMethod) || genMethod.DeclaringType.IsInterface);
+        }
+
+        public override void GenerateCode(CS _writer = null)
+        {
+            if (isNotImplement)// && !isOnlyExeInMono)
                 return;
 
             writer = CS.Writer;
             base.GenerateCode();
 
-            if (!Utils.IsVisibleToOthers(genMethod) && !genMethod.DeclaringType.IsInterface)
+            if (!CheckMethodNeedGen())
                 return;
             if (genMethod.IsConstructor && genMethod.DeclaringType.IsAbstract)
                 return;
@@ -180,10 +252,53 @@ namespace Generater
         void GenMethod()
         {
             var declear = GetMethodDelcear();
-            if(!genMethod.HasBody)
+            if (!genMethod.HasBody)
             {
+                if (genMethod.CustomAttributes.Any(x => x.AttributeType.Name == "VisibleToOtherModulesAttribute"))
+                {
+                    declear = declear.Replace("internal", "public");
+                }
                 writer.WriteLine(declear);
                 return;
+            }
+
+            //只在mono层存在的函数
+            if (genMethod.HasGenericParameters || isOnlyExeInMono)
+            {
+                if(classGenerater.TokenMap.TryGetValue(genMethod.MetadataToken.ToInt32(), out var methodAst))
+                {
+                    var tmpWriter = new System.IO.StringWriter();
+                    var outputVisitor = new CustomOutputVisitor(false, tmpWriter, Binder.DecompilerSetting.CSharpFormattingOptions);
+                    methodAst.AcceptVisitor(outputVisitor);
+                    
+                    //using(new LP(writer.GetLinePoint("//namespace")))
+                    //{
+                    //    //foreach(var ns in outputVisitor.InternalTypeRef)
+                    //    //{
+                    //    //    if (!classGenerater.RefNameSpace.Contains(ns))
+                    //    //    {
+                    //    //        classGenerater.RefNameSpace.Add(ns);
+                    //    //        writer.WriteLine($"using {ns}");
+                    //    //    }
+                    //    //}
+                    //}
+                    writer.WriteLine(tmpWriter.ToString(), false);
+                }
+                else
+                {
+                    if(genMethod.Name != ".ctor") //隐式的构造函数
+                    {
+                        throw new System.Exception("Method SyntaxTree not found");
+                    }
+                }
+                return;
+            }
+            else
+            {
+                if (!(genMethod.IsPublic && (genMethod.DeclaringType.IsPublic || genMethod.DeclaringType.IsNestedPublic) && !Utils.IsMethodHasParamArgument(genMethod))) //binding的函数，declaring type必须为public
+                {
+                    return;
+                }
             }
             //if(genMethod.CustomAttributes.Any(x=>x.AttributeType.Name == "RequiredByNativeCodeAttribute"))
             //{

@@ -25,7 +25,7 @@ namespace Generater
         {
             WorkDir = workDir;
             targetPlatform = platform;
-            ManagedDir = Path.Combine(workDir, "Managed");
+            ManagedDir = Path.Combine(workDir, "Managed_mono");
             NinjaWriter = new CodeWriter(File.CreateText(Path.Combine(ManagedDir, "build.ninja")));
             NinjaWriter._eol = "";
             AotDir = Path.Combine(workDir, "aot");

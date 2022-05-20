@@ -9,6 +9,22 @@
 #define CLASS_MASK_WRAPPER (1<<3)
 #define ENABLE_DEBUG 0
 
+#define FIELD_ATTRIBUTE_FIELD_ACCESS_MASK     0x0007
+#define FIELD_ATTRIBUTE_COMPILER_CONTROLLED   0x0000
+#define FIELD_ATTRIBUTE_PRIVATE               0x0001
+#define FIELD_ATTRIBUTE_FAM_AND_ASSEM         0x0002
+#define FIELD_ATTRIBUTE_ASSEMBLY              0x0003
+#define FIELD_ATTRIBUTE_FAMILY                0x0004
+#define FIELD_ATTRIBUTE_FAM_OR_ASSEM          0x0005
+#define FIELD_ATTRIBUTE_PUBLIC                0x0006
+
+#define FIELD_ATTRIBUTE_STATIC                0x0010
+#define FIELD_ATTRIBUTE_INIT_ONLY             0x0020
+#define FIELD_ATTRIBUTE_LITERAL               0x0040
+#define FIELD_ATTRIBUTE_NOT_SERIALIZED        0x0080
+#define FIELD_ATTRIBUTE_SPECIAL_NAME          0x0200
+#define FIELD_ATTRIBUTE_PINVOKE_IMPL          0x2000
+
 #if defined(__cplusplus)
 extern "C"
 {

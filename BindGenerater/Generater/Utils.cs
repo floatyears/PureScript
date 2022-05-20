@@ -20,6 +20,8 @@ namespace Generater
         }
 
         public static HashSet<string> IgnoreTypeSet = new HashSet<string>();
+        public static HashSet<string> IgnoreMethodsSet = new HashSet<string>();
+        public static HashSet<string> CSharpForceRetainMethods = new HashSet<string>();
 
         //declear : static void UnityEngine_GameObject_SetActive (int thiz_h, System.Boolean value)
         //or: MonoBind.UnityEngine_GameObject_SetActive(this.Handle, value)
@@ -70,13 +72,15 @@ namespace Generater
             var lastP = method.Parameters.LastOrDefault();
             foreach (var p in method.Parameters)
             {
+                var pname = GetParamName(p);
+
                 if (declear)
                 {
-                    param +=  TypeResolver.Resolve(p.ParameterType, method, MemberTypeSlot.Parameter).Paramer(p.Name, true) + (p == lastP ? "" : ", ");
+                    param +=  TypeResolver.Resolve(p.ParameterType, method, MemberTypeSlot.Parameter).Paramer(pname, true) + (p == lastP ? "" : ", ");
                 }
                 else
                 {
-                    param += TypeResolver.Resolve(p.ParameterType, method, MemberTypeSlot.Parameter).BoxBeforeMarshal(p.Name) + (p == lastP ? "" : ", ");
+                    param += TypeResolver.Resolve(p.ParameterType, method, MemberTypeSlot.Parameter).BoxBeforeMarshal(pname) + (p == lastP ? "" : ", ");
                 }
 
             }
@@ -98,6 +102,15 @@ namespace Generater
             return param;
         }
 
+        public static string GetParamName(ParameterDefinition parameter)
+        {
+            //if (parameter.ParameterType is GenericInstanceType)
+            //{
+            //    var gp = parameter.ParameterType as GenericInstanceType;
+            //    return $"{parameter.Name}_{gp.GenericArguments.Count}ga";
+            //}
+            return parameter.Name;
+        }
         public static string ReName(string name)
         {
             return name.Replace("::", "_").Replace(".", "_").Replace("/","_");
@@ -144,17 +157,32 @@ namespace Generater
             return name;
         }
 
+        public static bool Filter(FieldDefinition property)
+        {
+            if (!property.IsPublic)
+            {
+                return false;
+            }
+            foreach (var attr in property.CustomAttributes)
+            {
+                if (attr.AttributeType.Name.Equals("ObsoleteAttribute"))
+                    return false;
+            }
+            return true;
+        }
+
         public static bool Filter(PropertyDefinition property)
         {
-            bool hasPublicOrNullGetterSetter = (property.GetMethod == null && property.SetMethod == null)
+            bool hasPublicOrNoneGetterSetter = (property.GetMethod == null && property.SetMethod == null)
                 || ((property.GetMethod != null && property.GetMethod.IsPublic) || (property.SetMethod != null && property.SetMethod.IsPublic));
-            if(!hasPublicOrNullGetterSetter)
+            
+            if(!hasPublicOrNoneGetterSetter)
             {
                 return false;
             }
 
             if(property.HasThis && property.Name == "Item")
-            {//TODO:indexer
+            {//TODO: this indexer
                 return false; 
             }
 
@@ -169,34 +197,558 @@ namespace Generater
             return true;
         }
 
-        public static bool Filter(MethodDefinition method)
+        public static bool IsGenericMethodWithoutGenericType(MethodReference methodRef, List<MethodDefinition> calledMethods, List<MethodDefinition> refMethods = null)
         {
-            if (!Filter(method.ReturnType) || !Filter(method.DeclaringType) || method.DeclaringType.IsNotPublic)
+            if(refMethods == null)
+            {
+                refMethods = new List<MethodDefinition>(16);
+            }
+            var method = methodRef.Resolve();
+
+            if(methodRef is GenericInstanceMethod)
+            {
+                var methodInst = (GenericInstanceMethod)methodRef;
+                foreach(var g in methodInst.GenericArguments)
+                {
+                    if(g is GenericInstanceType)
+                    {
+                        var gt = (GenericInstanceType)g;
+                        if (gt.HasGenericArguments)
+                        {
+                            return false;
+                        }
+                    }
+                }
+            }
+            if (method.HasBody)
+            {
+                for (int i = 0; i < method.Body.Instructions.Count; i++)
+                {
+                    var il = method.Body.Instructions[i];
+                    if (il.OpCode.Code == Mono.Cecil.Cil.Code.Call || il.OpCode.Code == Mono.Cecil.Cil.Code.Callvirt)
+                    {
+                        var cmethod = il.Operand as MethodReference;
+                        var methodDef = cmethod.Resolve();
+                        if (refMethods.Contains(methodDef))
+                        {
+                            continue;
+                        }
+                        else
+                        {
+                            refMethods.Add(methodDef);
+                        }
+                        if (!methodDef.DeclaringType.FullName.StartsWith("System.Nullable") && !Utils.Filter(methodDef.DeclaringType))
+                        {
+                            return false;
+                        }
+                        //if (cmethod.DeclaringType.HasGenericParameters)
+                        //{
+                        //    Console.WriteLine("ignoreMethod: " + cmethod.FullName);
+                        //    return false;
+                        //}
+                        if (cmethod.FullName.StartsWith("System.Reflection"))
+                        {
+                            return false;
+                        }
+                        if (methodDef.IsConstructor)
+                        {
+                            //System以外的对象不能被直接进行构造。存在下面两种情况：
+                            //如果要在mono/il2cpp之间进行传递，WObject的ctor不能直接使用。
+                            //如果只在mono层内存在的对象，则不建议在wrapper层使用
+                            if (!methodDef.DeclaringType.FullName.StartsWith("System"))
+                            {
+                                return false;
+                            }
+                        }
+                        if (methodDef.IsInternalCall)
+                        {
+                            //Binder.AddMethod(cmethod);
+                            calledMethods.Add(cmethod.Resolve());
+                            continue;
+                        }
+                        if (cmethod.GenericParameters != null && cmethod.GenericParameters.Count > 0)
+                        {
+                            if (!IsGenericMethodWithoutGenericType(cmethod, calledMethods, refMethods))
+                            {
+                                return false;
+                            }
+                        }
+                        else
+                        {
+                            //if (methodDef.IsGetter || methodDef.IsSetter)
+                            //{
+                            //    //TODO: property
+                            //    return false;
+                            //}
+                            if (!Filter(methodDef, DllRuntime.Mono, refMethods))
+                            {
+                                return false;
+                            }
+
+                            if (methodDef.IsPublic)
+                            {
+                                //Binder.AddMethod(cmethod);
+                                calledMethods.Add(cmethod.Resolve());
+                            }
+                            else
+                            {
+                                if (CheckMethodNoAffectsToSelf(methodDef, calledMethods, refMethods))
+                                {
+                                    //Binder.AddMethod(cmethod);
+                                    calledMethods.Add(cmethod.Resolve());
+                                }
+                                else
+                                {
+                                    return false;
+                                }
+                            }
+                        }
+                    }
+                    else if (il.OpCode.Code == Mono.Cecil.Cil.Code.Ldsfld || il.OpCode.Code == Mono.Cecil.Cil.Code.Stsfld) //访问泛型的static field字段，泛型类型不支持
+                    {
+                        var fieldRef = il.Operand as FieldReference;
+                        if(fieldRef.DeclaringType is GenericInstanceType)
+                        {
+                            return false;
+                        }
+                    }
+                    else if (il.OpCode.Code == Mono.Cecil.Cil.Code.Ldfld || il.OpCode.Code == Mono.Cecil.Cil.Code.Stfld) //访问自身的field
+                    {
+                        var fieldRef = il.Operand as FieldReference;
+                        if (fieldRef.DeclaringType.FullName == method.DeclaringType.FullName)
+                        {
+                            return false;
+                        }
+                    }
+                    else if (il.OpCode.Code == Mono.Cecil.Cil.Code.Sizeof) //mono和il2cpp的类型字段不一样，用sizeof会有问题
+                    {
+                        if (il.Operand is GenericParameter)
+                        {
+                            return false;
+                        }
+                    }
+                    else if (il.OpCode.Code == Mono.Cecil.Cil.Code.Initobj)
+                    {
+                        var initobj = il.Operand as TypeReference;
+                        if (initobj.HasGenericParameters)
+                        {
+                            Console.WriteLine("ignoreMethod: " + initobj.FullName);
+                            return false;
+                        }
+                    }
+                    
+                }
+            }
+            return true;
+        }
+
+        public static bool CheckMethodOnlyCallInternal(MethodDefinition method, List<MethodDefinition> calledMethods, List<MethodDefinition> refMethods = null)
+        {
+            if (refMethods == null)
+            {
+                refMethods = new List<MethodDefinition>(16);
+            }
+            if (method.HasBody)
+            {
+                for (int i = 0; i < method.Body.Instructions.Count; i++)
+                {
+                    var il = method.Body.Instructions[i];
+                    if (il.OpCode.Code == Mono.Cecil.Cil.Code.Call || il.OpCode.Code == Mono.Cecil.Cil.Code.Callvirt)
+                    {
+                        var cmethod = il.Operand as MethodReference;
+                        var methodDef = cmethod.Resolve();
+                        if (refMethods.Contains(methodDef))
+                        {
+                            continue;
+                        }
+                        else
+                        {
+                            refMethods.Add(methodDef);
+                        }
+                        if (!Utils.Filter(methodDef.ReturnType))
+                        {
+                            return false;
+                        }
+                        if (methodDef.IsInternalCall)
+                        {
+                            //Binder.AddMethod(methodDef);
+                            calledMethods.Add(methodDef);
+                        }
+                        else
+                        {
+                            if (!CheckMethodOnlyCallInternal(methodDef, calledMethods, refMethods))
+                            {
+                                return false;
+                            }
+                            else
+                            {
+                                //Binder.AddMethod(methodDef);
+                                calledMethods.Add(methodDef);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        if (il.OpCode.Code == Mono.Cecil.Cil.Code.Ldfld || il.OpCode.Code == Mono.Cecil.Cil.Code.Ldsfld
+                            || il.OpCode.Code == Mono.Cecil.Cil.Code.Stfld || il.OpCode.Code == Mono.Cecil.Cil.Code.Stsfld
+                            || il.OpCode.Code == Mono.Cecil.Cil.Code.Initobj || il.OpCode.Code == Mono.Cecil.Cil.Code.Newobj
+                            || il.OpCode.Code == Mono.Cecil.Cil.Code.Newarr)
+                        {
+                            return false;
+                        }
+                    }
+                }
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// 函数不访问自身的field，这样的函数可以安全的only in mono。
+        /// </summary>
+        /// <param name="method"></param>
+        /// <param name="refMethods"></param>
+        /// <returns></returns>
+        public static bool CheckMethodNoAffectsToSelf(MethodDefinition method, List<MethodDefinition> calledMethods, List<MethodDefinition> refMethods = null)
+        {
+            if(refMethods == null)
+            {
+                refMethods = new List<MethodDefinition>(16);
+            }
+            if (method.HasBody)
+            {
+                for (int i = 0; i < method.Body.Instructions.Count; i++)
+                {
+                    var il = method.Body.Instructions[i];
+                    if (il.OpCode.Code == Mono.Cecil.Cil.Code.Ldfld || il.OpCode.Code == Mono.Cecil.Cil.Code.Ldsfld)
+                    {
+                        var field = il.Operand as FieldReference;
+                        //访问自身的成员
+                        if (field.DeclaringType.FullName == method.DeclaringType.FullName)
+                        {
+                            return false;
+                        }
+                    }
+                    else if (il.OpCode.Code == Mono.Cecil.Cil.Code.Stfld || il.OpCode.Code == Mono.Cecil.Cil.Code.Stsfld)
+                    {
+                        var field = il.Operand as FieldReference;
+                        //访问自身的成员
+                        if (field.DeclaringType.FullName == method.DeclaringType.FullName)
+                        {
+                            return false;
+                        }
+                    }
+                    else if (il.OpCode.Code == Mono.Cecil.Cil.Code.Callvirt || il.OpCode.Code == Mono.Cecil.Cil.Code.Call)
+                    {
+                        var cmethod = il.Operand as MethodReference;
+                        var methodDef = cmethod.Resolve();
+                        if (refMethods.Contains(methodDef))
+                        {
+                            continue;
+                        }
+                        else
+                        {
+                            refMethods.Add(methodDef);
+                        }
+                        if (methodDef.IsInternalCall)
+                        {
+                            //Binder.AddMethod(methodDef);
+                            calledMethods.Add(methodDef);
+                            continue;
+                        }
+                        
+                        //访问non public函数
+                        if(!methodDef.IsPublic || (methodDef.DeclaringType.IsNotPublic && (methodDef.IsPublic || methodDef.IsFamily)))
+                        {
+                            //if (methodDef.DeclaringType.FullName == method.DeclaringType.FullName)
+                            {
+                                if (!CheckMethodNoAffectsToSelf(methodDef, calledMethods, refMethods))
+                                {
+                                    return false;
+                                }
+                                return false;
+                            }
+                        }
+                        
+                        //mono侧内不能用reflection，访问到的函数或者字段可能有误
+                        if (cmethod.FullName.Contains("System.Reflection"))
+                        {
+                            return false;
+                        }
+
+                        //interface的函数
+                        //if (methodDef.DeclaringType.IsInterface)
+                        //{
+                        //    if (!Filter(methodDef, DllRuntime.Mono, methods))
+                        //    {
+                        //        return false;
+                        //    }
+                        //}
+
+                        //if (!Filter(methodDef, DllRuntime.Mono) || !CheckMethodNoAffectsToSelf(methodDef))
+                        //{
+                        //    return false;
+                        //}
+                    }else if(il.OpCode.Code == Mono.Cecil.Cil.Code.Newobj)
+                    {
+                        var ctorMethod = (il.Operand as MethodReference).Resolve();
+                        if (ctorMethod != null)
+                        {
+                            calledMethods.Add(ctorMethod);
+                            //Binder.AddMethod(ctorMethod);
+                        }
+
+                    }
+                }
+            }
+
+            return true;
+        }
+
+        public static bool IsMethodHasParamArgument(MethodDefinition method)
+        {
+            foreach(var p in method.Parameters)
+            {
+                if(p.IsOut || p.CustomAttributes.Any(x => x.AttributeType.Name == "ParamArrayAttribute"))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        public static bool IsMethodImplInterface(MethodDefinition method)
+        {
+            foreach(var i in method.DeclaringType.Interfaces)
+            {
+                foreach(var m in i.InterfaceType.Resolve().Methods)
+                {
+                    if(m.CompareSignature(method))
+                    {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        public static bool IsMethodCalledBySelf(MethodDefinition method)
+        {
+            var dt = method.DeclaringType;
+            foreach (var m in dt.Methods)
+            {
+                if (m.HasBody)
+                {
+                    for (int i = 0; i < m.Body.Instructions.Count; i++)
+                    {
+                        var il = m.Body.Instructions[i];
+                        if (il.OpCode.Code == Mono.Cecil.Cil.Code.Callvirt || il.OpCode.Code == Mono.Cecil.Cil.Code.Call)
+                        {
+                            var cmethod = il.Operand as MethodReference;
+                            if (cmethod.MetadataToken.ToInt32() == method.MetadataToken.ToInt32())
+                            {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+            return false;
+        }
+
+        //public static bool IsMethodOnlyExeInMono(MethodDefinition method)
+        //{
+        //    return method.IsInternalCall || ((!method.IsPublic || (method.DeclaringType.IsNotPublic && (method.IsPublic || method.IsFamily))) && Utils.CheckMethodNoAffectsToSelf(method));
+        //}
+
+        public static MethodDefinition GetMethodByToken(TypeDefinition typeDefinition, int token)
+        {
+            foreach (var m in typeDefinition.Methods)
+            {
+                if (m.MetadataToken.ToInt32() == token)
+                {
+                    return m;
+                }
+            }
+            return null;
+        }
+
+        public static bool FilterStructMethod(MethodDefinition method, List<MethodDefinition> calledMethods = null)
+        {
+            if(method == null)
+            {
                 return false;
+            }
+            foreach(var m in IgnoreMethodsSet)
+            {
+                if (method.FullName.StartsWith(m))
+                {
+                    return false;
+                }
+            }
+
+            if (method.HasGenericParameters)
+            {
+                if (Utils.IsGenericMethodWithoutGenericType(method, calledMethods))
+                {
+                    return true;
+                }
+            }
+            else
+            {
+                if (method.IsInternalCall)
+                {
+                    if(calledMethods != null)
+                    {
+                        calledMethods.Add(method);
+                    }
+                    return true;
+                }
+                else
+                {
+                    HashSet<MethodDefinition> calledM = new HashSet<MethodDefinition>(4);
+                    if (method.HasBody)
+                    {
+                        for (int i = 0; i < method.Body.Instructions.Count; i++)
+                        {
+                            var il = method.Body.Instructions[i];
+                            if (il.OpCode.Code == Mono.Cecil.Cil.Code.Call || il.OpCode.Code == Mono.Cecil.Cil.Code.Callvirt)
+                            {
+                                var methodDef = (il.Operand as Mono.Cecil.MethodReference).Resolve();
+                                if (!methodDef.DeclaringType.FullName.StartsWith("System.Nullable") && !Utils.Filter(methodDef.DeclaringType))
+                                {
+                                    return false;
+                                }
+                                if (methodDef != null && methodDef.HasGenericParameters)
+                                {
+                                    if (!Utils.IsGenericMethodWithoutGenericType(methodDef, calledMethods))
+                                    {
+                                        return false;
+                                    }
+                                }
+                                calledM.Add(methodDef);
+                            }
+                        }
+                    }
+
+                    if (/*Utils.Filter(m, DllRuntime.Mono) && */(method.IsPublic || method.IsAssembly || (method.IsPrivate && (method.IsConstructor || Utils.IsMethodCalledBySelf(method) || Utils.IsMethodImplInterface(method)))))
+                    {
+                        if(calledMethods != null)
+                        {
+                            calledMethods.AddRange(calledM);
+                        }
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        public static bool Filter(MethodDefinition method, DllRuntime runtime, List<MethodDefinition> checkedMethods = null)
+        {
+            foreach (var m in IgnoreMethodsSet)
+            {
+                if (method.FullName.StartsWith(m))
+                {
+                    return false;
+                }
+            }
+            if (checkedMethods == null)
+            {
+                checkedMethods = new List<MethodDefinition>(16);
+            }
+            if (!Filter(method.DeclaringType))
+            {
+                return false;
+            }
+
+            if (runtime == DllRuntime.IL2Cpp) 
+            {
+                if (method.DeclaringType.IsNotPublic)
+                {
+                    return false;
+                }
+            }else if(runtime == DllRuntime.Mono)
+            {
+                if (!(method.IsInternalCall || method.DeclaringType.IsPublic || method.DeclaringType.IsNestedPublic || (method.DeclaringType.IsNotPublic && (method.IsFamily || method.IsPublic))))
+                {
+                    return false;
+                }
+            }
+
+            if (!method.ReturnType.IsGenericParameter)
+            {
+                if (!Filter(method.ReturnType))
+                {
+                    return false;
+                }
+            }
 
             if (IsObsolete(method))
                 return false;
 
             if (method.GenericParameters != null && method.GenericParameters.Count > 0)
-                return false;
+            {
+                if(runtime == DllRuntime.Mono)
+                {
+                    var calledMethods = new List<MethodDefinition>();
+                    if (!IsGenericMethodWithoutGenericType(method, calledMethods, checkedMethods))
+                    {
+                        return false;
+                    }
+                    else
+                    {
+                        foreach(var m in calledMethods)
+                        {
+                            Binder.AddMethod(m);
+                        }
+                    }
+                }
+                else //il2cpp侧不支持泛型函数
+                {
+                    return false;
+                }
+            }
 
             foreach (var p in method.Parameters)
             {
-                //TODO: params关键字修饰的参数不支持
-                if (p.CustomAttributes.Any(x => x.AttributeType.Name == "ParamArrayAttribute"))
+                //TODO: params关键字修饰的参数不支持(只在mono侧的可以)
+                if ((method.IsConstructor || runtime == DllRuntime.IL2Cpp) && p.CustomAttributes.Any(x => x.AttributeType.Name == "ParamArrayAttribute"))
                 {
                     return false;
                 }
                 if (p.ParameterType.IsByReference && !p.ParameterType.GetElementType().IsValueType)
+                {
                     return false;
+                }
                 if (p.ParameterType.IsPointer && method.IsConstructor && method.DeclaringType.IsStruct())
+                {
                     return false;
+                }
+                if (method.IsConstructor && p.ParameterType.Resolve().IsDelegate()) //ctor不支持带delegate的参数
+                {
+                    return false;
+                }
 
                 if (p.IsOut)
-                    return false;
-               
-                if (!Filter(p.ParameterType))
-                    return false;
+                {
+                    var refType = p.ParameterType.Resolve();
+                    if (runtime == DllRuntime.Mono && (refType.IsValueType || refType.IsSubclassOf("UnityEngine.Object") || (refType.IsArray && (p.ParameterType as Mono.Cecil.ArrayType).ElementType.Resolve().IsSubclassOf("UnityEngine.Object"))))
+                    {
+
+                    }
+                    else
+                    {
+                        return false;
+                    }
+                }
+                if (!p.ParameterType.IsGenericParameter)
+                {
+                    if (!Filter(p.ParameterType))
+                    {
+                        return false;
+                    }
+                }
+                
             }
 
             if (method.ReturnType.FullName == "System.Threading.Tasks.Task") // async
@@ -251,10 +803,21 @@ namespace Generater
         public static bool Filter(TypeReference type)
         {
             if (DropTypes.Contains(type))
+            {
                 return false;
+            }
+                
 
             if (Binder.retainTypes.Contains(type.FullName))
+            {
                 return true;
+            }
+
+            //mono的stream对象和il2cpp的stream对象不兼容
+            if (type.FullName.StartsWith("System.IO.Stream"))
+            {
+                return false;
+            }
 
             foreach (var t in IgnoreTypeSet)
             {
@@ -283,16 +846,36 @@ namespace Generater
 
             if (type.IsGeneric() && !(IsDelegate(type))) // 
             {
-                Log("ignorType: " + type.FullName);
-                DropTypes.Add(type);
-                return false;
+                var typeDef = type.Resolve();
+                if (typeDef != null && typeDef.IsInterface) //nullable作为特殊的泛型可以支持
+                {
+                    var a = 1;
+                }
+                else
+                {
+                    Log("ignorType: " + type.FullName);
+                    DropTypes.Add(type);
+                    return false;
+                }
+                
             }
 
-            if(IsException(type))
+            if (IsException(type))
             {
-                Log("ignorType: " + type.FullName);
-                DropTypes.Add(type);
-                return false;
+                if(type.FullName != "System.Exception")
+                {
+                    var exType = type.Resolve();
+                    foreach (var f in exType.Fields)
+                    {
+                        var ft = f.FieldType.Resolve();
+                        if (!(ft.IsPrimitive || ft.FullName == "System.String" || ft.IsEnum))
+                        {
+                            Log("ignorType: " + type.FullName);
+                            DropTypes.Add(type);
+                            return false;
+                        }
+                    }
+                }
             }
 
             var td = type.Resolve();
@@ -389,8 +972,13 @@ namespace Generater
 
 
             var ct = type.BaseType();
-            while(ct != null)
+            while (ct != null)
             {
+                //exception不用检查
+                if (ct != null && ct.FullName == "System.Exception")
+                {
+                    break;
+                }
                 if (!Filter(ct))
                 {
                     Log($"ignorType: {type.FullName} base {ct.FullName}");
@@ -876,8 +1464,15 @@ namespace Generater
 
         public static bool IsVisibleToOthers(MethodDefinition method)
         {
-            return method.IsPublic;// || (method.IsFamilyOrAssembly && method.CustomAttributes.Any(x => x.AttributeType.Name == "VisibleToOtherModulesAttribute"));
+            return method.IsPublic;// || (method.IsInternalCall || method.CustomAttributes.Any(x => x.AttributeType.Name == "VisibleToOtherModulesAttribute"));
         }
+
+
+        public static bool IsInternalCallVisibleToOthers(MethodDefinition method)
+        {
+            return method.IsInternalCall && ((method.CustomAttributes.Any(x => x.AttributeType.Name == "VisibleToOtherModulesAttribute")) || CSharpForceRetainMethods.Any(x=>method.FullName.StartsWith(x)));// || method.IsAssembly);
+        }
+
 
         public static bool IsFieldSerializable(FieldDefinition field)
         {
@@ -1074,6 +1669,7 @@ namespace Generater
                 }
             }
         }
+
     }
 
     public class NameCounter

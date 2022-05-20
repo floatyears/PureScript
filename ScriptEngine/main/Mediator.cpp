@@ -300,8 +300,11 @@ void copy_il2cpp_class_data_to_mono(Il2CppObject* i2obj, MonoObject* mobj)
 			if (mono_class_is_subclass_of(mfclass, get_wobject_class(), 0))
 			{
 				platform_log("[copy_il2cpp_class_data_to_mono] class: %s", mono_class_get_name(mfclass));
-				Il2CppClass* i2fclass = il2cpp_class_from_type(ftype);
+				//Il2CppClass* i2fclass = il2cpp_class_from_type(ftype);
 				MonoObject* ret = get_mono_object(il2cpp_field_get_value_object(field, i2obj), mfclass);
+				if (ret == NULL) {
+					platform_log("[copy_il2cpp_class_data_to_mono] field \"%s\"'s value is NULL", fname);
+				}
 				mono_gc_wbarrier_set_field(mobj, (char*)mobj + moffset, ret);
 			}
 			else
@@ -310,7 +313,7 @@ void copy_il2cpp_class_data_to_mono(Il2CppObject* i2obj, MonoObject* mobj)
 				MonoCustomAttrInfo* attr = mono_custom_attrs_from_class(mfclass);
 				if (mono_custom_attrs_has_attr(attr, get_serializable_attribute_class()))
 				{
-					Il2CppClass* i2fclass = il2cpp_class_from_type(ftype);
+					//Il2CppClass* i2fclass = il2cpp_class_from_type(ftype);
 					MonoObject* retobj = mono_object_new(g_domain, mfclass);
 					copy_il2cpp_class_data_to_mono(il2cpp_field_get_value_object(field, i2obj), retobj);
 					mono_gc_wbarrier_set_field(mobj, (char*)mobj + moffset, retobj);
@@ -722,14 +725,15 @@ void get_mono_struct_raw(void* i2struct, MonoObject** monoStruct, Il2CppReflecti
 		platform_log("the return value is not a struct: %s", il2cpp_class_get_name(i2class));
 		return;
 	}
-	platform_log("[get_mono_struct_raw] class: %s", mono_class_get_name(klass));
+	bool fullValue = is_full_value_struct(klass);
 	int32_t size = mono_class_value_size(klass, NULL);
+	platform_log("[get_mono_struct_raw] class: %s, size: %d, full value: %d", mono_class_get_name(klass), size, fullValue);
 	if (size != i2size)
 	{
 		platform_log("the mono and il2cpp struct has differnet length: m-%d, i-%d", size, i2size);
 		return;
 	}
-	if (is_full_value_struct(klass))
+	if (fullValue)
 	{
 		MonoObject* tmp = mono_object_new(g_domain, klass);
 		*monoStruct = tmp;
@@ -838,7 +842,7 @@ int32_t get_primitive_type_size(MonoType* type)
 bool is_full_value_struct(MonoClass* klass)
 {
 	MonoType* type = mono_class_get_type(klass);
-	platform_log("check full value struct class: %d", mono_class_get_name(klass));
+	//platform_log("check full value struct class: %s", mono_class_get_name(klass));
 	return is_full_value_struct_type(type);
 }
 
@@ -856,10 +860,13 @@ bool is_full_value_struct_type(MonoType* type)
 	MonoClassField* field = NULL;
 	MonoClass* klass = mono_class_from_mono_type(type);
 	while ((field = mono_class_get_fields(klass, &iter))) {
+		if ((mono_field_get_flags(field) & FIELD_ATTRIBUTE_STATIC) != 0) {
+			continue;
+		}
 		MonoType* ftype = mono_field_get_type(field);
 		MonoClass* fklass = mono_class_from_mono_type(ftype);
 #if DEBUG
-		platform_log("check type:%s is full value struct, field:%s, type:%d, name: %s", mono_class_get_name(klass), mono_class_get_name(fklass), ftype->type, mono_field_get_name(field));
+		//platform_log("check type:%s is full value struct, field:%s, type:%d, name: %s", mono_class_get_name(klass), mono_class_get_name(fklass), ftype->type, mono_field_get_name(field));
 #endif
 		if (ftype == NULL || ftype == type)
 		{
@@ -867,7 +874,7 @@ bool is_full_value_struct_type(MonoType* type)
 		}
 
 		//enum type has a enum type field in it, this will cause a dead circle
-		if (!(is_primitive(ftype) || mono_class_is_enum(fklass) || is_full_value_struct_type(ftype)))
+		if (!(is_primitive(ftype) || mono_class_is_enum(fklass) || (is_struct_type(ftype) && is_full_value_struct_type(ftype))))
 		{
 #if DEBUG
 			//platform_log("type:%s is not full value struct, field:%s, type:%d", mono_class_get_name(klass), mono_class_get_name(fklass), ftype->type);
