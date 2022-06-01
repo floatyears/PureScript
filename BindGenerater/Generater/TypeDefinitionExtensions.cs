@@ -139,6 +139,24 @@ static internal class TypeDefinitionExtensions
         return false;
     }
 
+    public static bool IsGenericParameter(this TypeReference type)
+    {
+        var dt = type.Resolve();
+        if (type.HasGenericParameters || type.IsGenericParameter) //|| (dt != null && dt.IsGeneric())
+        {
+            return true;
+        }
+        if (type.IsByReference)
+        {
+            return ((ByReferenceType)type).ElementType.IsGenericParameter();
+        }
+        if (type.IsArray)
+        {
+            return ((ArrayType)type).ElementType.IsGenericParameter();
+        }
+        return false;
+    }
+
     public static bool HasGenericArgumentFromMethod(this TypeReference type)
     {
         if (type.IsGenericParameter)

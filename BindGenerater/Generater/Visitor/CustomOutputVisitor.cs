@@ -489,6 +489,167 @@ public class MemberDeclearVisitor: CustomOutputVisitor
 
 }
 
+public class MonoProxyMemberDeclearVisitor : CustomOutputVisitor
+{
+    bool hasBodyBlock;
+    public HashSet<string> NamespaceRef;
+    private MetadataModule module;
+
+    public MonoProxyMemberDeclearVisitor(CSharpDecompiler decompiler, TextWriter textWriter, CSharpFormattingOptions formattingPolicy) : base(false, textWriter, formattingPolicy)
+    {
+        hasBodyBlock = false;
+        NamespaceRef = new HashSet<string>(16);
+        module = decompiler.TypeSystem.MainModule;
+    }
+
+    protected void ResolveTypeDeclear(TypeDeclaration typeDeclaration)
+    {
+        List<AstType> dList = new List<AstType>();
+        foreach (var t in typeDeclaration.BaseTypes)
+        {
+            var res = t.Annotation<ResolveResult>();
+            //mono proxy接口全裁剪
+            if (res.Type.Kind == TypeKind.Interface)
+            {
+                dList.Add(t);
+            }
+        }
+        foreach (var t in dList)
+        {
+            typeDeclaration.BaseTypes.Remove(t);
+        }
+    }
+
+    protected override void WriteMethodBody(BlockStatement body, BraceStyle style)
+    {
+        if (!hasBodyBlock)
+            return;
+        base.WriteMethodBody(body, style);
+    }
+
+    public override void VisitMethodDeclaration(MethodDeclaration methodDeclaration)
+    {
+        var member = methodDeclaration.Resolve() as MemberResolveResult;
+        RequiredNamespaceCollector.CollectNamespaces(member.Member, module, NamespaceRef);
+        base.VisitMethodDeclaration(methodDeclaration);
+    }
+
+    public override void VisitFieldDeclaration(FieldDeclaration fieldDeclaration)
+    {
+        //var member = fieldDeclaration.Resolve() as MemberResolveResult;
+        //RequiredNamespaceCollector.CollectNamespaces(member.Member, module, NamespaceRef);
+        if (!hasBodyBlock)
+        {
+            StartNode(fieldDeclaration);
+            WriteAttributes(fieldDeclaration.Attributes);
+            WriteModifiers(fieldDeclaration.ModifierTokens);
+            var res = fieldDeclaration.Annotation<ResolveResult>();
+
+            if (res.Type.Kind == TypeKind.Enum)
+            {
+                writer.WritePrimitiveType("int");
+            }
+            else
+            {
+                fieldDeclaration.ReturnType.AcceptVisitor(this);
+
+            }
+            Space();
+            //WriteCommaSeparatedList(fieldDeclaration.Variables);
+            bool flag = true;
+            foreach (VariableInitializer item in fieldDeclaration.Variables)
+            {
+                if (flag)
+                {
+                    flag = false;
+                }
+                else
+                {
+                    Comma(item);
+                }
+
+                //item.AcceptVisitor(this);
+                writer.WritePrimitiveType(item.Name);
+            }
+            Semicolon();
+            EndNode(fieldDeclaration);
+            return;
+        }
+        base.VisitFieldDeclaration(fieldDeclaration);
+    }
+
+    public override void VisitConstructorInitializer(ConstructorInitializer constructorInitializer)
+    {
+        if (!hasBodyBlock)
+        {
+            return;
+        }
+        base.VisitConstructorInitializer(constructorInitializer);
+    }
+
+    public override void VisitPropertyDeclaration(PropertyDeclaration propertyDeclaration)
+    {
+        if (!hasBodyBlock)
+        {
+            StartNode(propertyDeclaration);
+            WriteAttributes(propertyDeclaration.Attributes);
+            WriteModifiers(propertyDeclaration.ModifierTokens);
+            propertyDeclaration.ReturnType.AcceptVisitor(this);
+            Space();
+            WritePrivateImplementationType(propertyDeclaration.PrivateImplementationType);
+            WriteIdentifier(propertyDeclaration.NameToken);
+            EndNode(propertyDeclaration);
+            return;
+        }
+        base.VisitPropertyDeclaration(propertyDeclaration);
+    }
+
+    public override void VisitTypeDeclaration(TypeDeclaration typeDeclaration)
+    {
+        ResolveTypeDeclear(typeDeclaration);
+
+        if (!hasBodyBlock)
+        {
+            StartNode(typeDeclaration);
+            WriteModifiers(typeDeclaration.ModifierTokens);
+            BraceStyle braceStyle;
+            switch (typeDeclaration.ClassType)
+            {
+                case ClassType.Enum:
+                    WriteKeyword(Roles.EnumKeyword);
+                    braceStyle = policy.EnumBraceStyle;
+                    break;
+                case ClassType.Interface:
+                    WriteKeyword(Roles.InterfaceKeyword);
+                    braceStyle = policy.InterfaceBraceStyle;
+                    break;
+                case ClassType.Struct:
+                    WriteKeyword(Roles.StructKeyword);
+                    braceStyle = policy.StructBraceStyle;
+                    break;
+                default:
+                    WriteKeyword(Roles.ClassKeyword);
+                    braceStyle = policy.ClassBraceStyle;
+                    break;
+            }
+            WriteIdentifier(typeDeclaration.NameToken);
+            WriteTypeParameters(typeDeclaration.TypeParameters);
+            if (typeDeclaration.BaseTypes.Any())
+            {
+                Space();
+                WriteToken(Roles.Colon);
+                Space();
+                WriteCommaSeparatedList(typeDeclaration.BaseTypes);
+            }
+
+            return;
+        }
+
+        base.VisitTypeDeclaration(typeDeclaration);
+    }
+
+}
+
 public class CheckTypeRefVisitor:DepthFirstAstVisitor<CheckTypeRefVisitor.Result>
 {
     public enum Result

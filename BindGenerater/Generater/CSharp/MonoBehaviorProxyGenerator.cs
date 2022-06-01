@@ -22,7 +22,7 @@ namespace Generater
 
         //private List<PropertyGenerater> properties = new List<PropertyGenerater>();
         //private List<DelegateGenerater> events = new List<DelegateGenerater>();
-        //private List<MethodGenerater> methods = new List<MethodGenerater>();
+        private List<MethodDefinition> methods = new List<MethodDefinition>();
         private List<FieldDefinition> fields = new List<FieldDefinition>();
         private Dictionary<TypeDefinition, MonoBehaviorProxyGenerator> nestType = new Dictionary<TypeDefinition, MonoBehaviorProxyGenerator>();
         private bool hasDefaultConstructor = false;
@@ -35,6 +35,7 @@ namespace Generater
 
         Dictionary<int, AstNode> retainDic = new Dictionary<int, AstNode>();
         public TokenMapVisitor nodesCollector;
+        private CSharpDecompiler decompiler;
 
         private MonoBehaviorProxyGenerator parent = null;
         private CSCGenerater compiler = null;
@@ -79,7 +80,9 @@ namespace Generater
             CheckNodes();
 
             if (genType.BaseType != null)
+            {
                 RefNameSpace.Add(genType.BaseType.Namespace);
+            }
 
             foreach (var t in genType.NestedTypes)
             {
@@ -117,7 +120,29 @@ namespace Generater
 
                     MonoBehaviorProxyManager.AddType(field.DeclaringType);
                 }
-                
+
+            }
+            var tokens = new TokenMapVisitor();
+
+            var baseMethods = genType.BaseType.Resolve().Methods;
+            foreach (var method in baseMethods)
+            {
+                if (method.IsAbstract)
+                {
+                    foreach(var m in genType.Methods)
+                    {
+                        if (m.CompareSignature(method))
+                        {
+                            //var declear = Utils.GetMemberDelcear(m, nodesCollector.TokenMap);
+                            methods.Add(m);
+                            RefNameSpace.Add(m.ReturnType.Namespace);
+                            foreach(var p in m.Parameters)
+                            {
+                                RefNameSpace.Add(p.ParameterType.Namespace);
+                            }
+                        }
+                    }
+                }
             }
 
             //foreach (var e in genType.Events)
@@ -133,7 +158,7 @@ namespace Generater
 
         void CheckNodes()
         {
-            var decompiler = MonoBehaviorProxyManager.GetDecompiler(genType.Module.Name);
+            decompiler = MonoBehaviorProxyManager.GetDecompiler(genType.Module.Name);
 
             var tName = genType.FullName.Replace("/", "+");
             var name = new FullTypeName(tName);
@@ -165,6 +190,7 @@ namespace Generater
                     }
                     CS.Writer.WriteLine("using System.Runtime.InteropServices");
                     CS.Writer.WriteLine("using Object = UnityEngine.Object");
+                    CS.Writer.CreateLinePoint("//namespace");
 
                     if (!string.IsNullOrEmpty(genType.Namespace))
                     {
@@ -172,8 +198,8 @@ namespace Generater
                     }
                 }
 
-                var stripInterfaceSet = new HashSet<string>(genType.Interfaces.Select(x => x.InterfaceType.Name));
-                string classDefine = Utils.GetMemberDelcear(genType, nodesCollector.TokenMap, stripInterfaceSet); //remove all interfaces
+                //var stripInterfaceSet = new HashSet<string>(genType.Interfaces.Select(x => x.InterfaceType.Name));
+                string classDefine = GetMemberDelcear(genType); //remove all interfaces
                 if (genType.BaseType.FullName == "UnityEngine.MonoBehaviour")
                 {
                     classDefine = classDefine.Replace("MonoBehaviour", "__MonoBehaviourProxy");
@@ -183,8 +209,26 @@ namespace Generater
                 //write all serializable field
                 foreach (var f in fields)
                 {
-                    CS.Writer.WriteLine(Utils.GetMemberDelcear(f, nodesCollector.TokenMap), false);
+                    CS.Writer.WriteLine(GetMemberDelcear(f), false);
                 }
+
+                foreach(var m in methods)
+                {
+                    CS.Writer.Start(GetMemberDelcear(m));
+                    if(m.ReturnType.FullName != "System.Void")
+                    {
+                        CS.Writer.WriteLine($"return default({m.ReturnType.FullName})");
+                    }
+                    CS.Writer.End();
+                }
+
+                //var lp = CS.Writer.GetLinePoint("//namespace");
+                //CS.Writer.UsePointer(lp);
+                //foreach (var ns in output.NamespaceRef)
+                //{
+                //    CS.Writer.WriteLine($"using {ns}");
+                //}
+                //CS.Writer.UnUsePointer(lp);
 
                 GenNested();
 
@@ -212,6 +256,37 @@ namespace Generater
             //    m.Dispose();
 
             //moduleSet.Clear();
+        }
+
+
+        public string GetMemberDelcear(IMemberDefinition member)
+        {
+            var method = member as MethodDefinition;
+            if (method != null)
+            {
+                if (method.IsConstructor && method.Parameters.Count == 0)
+                {
+                    return $"public {method.DeclaringType.Name}()";
+                }
+            }
+
+            var token = member.MetadataToken.ToInt32();
+            StringWriter writer = new StringWriter();
+            var output = new MonoProxyMemberDeclearVisitor(decompiler, writer, Binder.DecompilerSetting.CSharpFormattingOptions);
+            if (nodesCollector.TokenMap != null && nodesCollector.TokenMap.TryGetValue(token, out var map))
+            {
+                map.AcceptVisitor(output);
+                if(output.NamespaceRef.Count > 0)
+                {
+                    
+                }
+            }
+            else
+            {
+                Console.WriteLine("Key Not Found: " + member.ToString());
+            }
+            //TokenMap[token].AcceptVisitor(output);
+            return writer.ToString();
         }
 
         public override string TypeFullName()

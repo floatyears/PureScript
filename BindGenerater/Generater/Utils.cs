@@ -312,7 +312,8 @@ namespace Generater
                             return false;
                         }
                     }
-                    else if (il.OpCode.Code == Mono.Cecil.Cil.Code.Ldfld || il.OpCode.Code == Mono.Cecil.Cil.Code.Stfld) //访问自身的field
+                    else if (il.OpCode.Code == Mono.Cecil.Cil.Code.Ldfld || il.OpCode.Code == Mono.Cecil.Cil.Code.Stfld
+                        || il.OpCode.Code == Mono.Cecil.Cil.Code.Ldflda) //访问自身的field
                     {
                         var fieldRef = il.Operand as FieldReference;
                         if (fieldRef.DeclaringType.FullName == method.DeclaringType.FullName)
@@ -365,10 +366,16 @@ namespace Generater
                         {
                             refMethods.Add(methodDef);
                         }
-                        if (!Utils.Filter(methodDef.ReturnType))
+
+                        //{T}/{T[]}类型的参数可以作为函数返回值
+                        if (!methodDef.ReturnType.IsGenericParameter())
                         {
-                            return false;
+                            if (!Utils.Filter(methodDef.ReturnType))
+                            {
+                                return false;
+                            }
                         }
+                        
                         if (methodDef.IsInternalCall)
                         {
                             //Binder.AddMethod(methodDef);
@@ -376,20 +383,30 @@ namespace Generater
                         }
                         else
                         {
-                            if (!CheckMethodOnlyCallInternal(methodDef, calledMethods, refMethods))
+                            //调用自身的pulic函数可以优化
+                            if(methodDef.IsPublic && methodDef.DeclaringType == method.DeclaringType && (!methodDef.DeclaringType.IsNested || methodDef.DeclaringType.IsNestedPublic) && Utils.Filter(methodDef, DllRuntime.Mono, refMethods))
                             {
-                                return false;
+                                calledMethods.Add(methodDef);
                             }
                             else
                             {
-                                //Binder.AddMethod(methodDef);
-                                calledMethods.Add(methodDef);
+                                if (!CheckMethodOnlyCallInternal(methodDef, calledMethods, refMethods))
+                                {
+                                    return false;
+                                }
+                                else
+                                {
+                                    //Binder.AddMethod(methodDef);
+                                    calledMethods.Add(methodDef);
+                                }
                             }
+                            
                         }
                     }
                     else
                     {
                         if (il.OpCode.Code == Mono.Cecil.Cil.Code.Ldfld || il.OpCode.Code == Mono.Cecil.Cil.Code.Ldsfld
+                            || il.OpCode.Code == Mono.Cecil.Cil.Code.Ldflda || il.OpCode.Code == Mono.Cecil.Cil.Code.Ldsflda
                             || il.OpCode.Code == Mono.Cecil.Cil.Code.Stfld || il.OpCode.Code == Mono.Cecil.Cil.Code.Stsfld
                             || il.OpCode.Code == Mono.Cecil.Cil.Code.Initobj || il.OpCode.Code == Mono.Cecil.Cil.Code.Newobj
                             || il.OpCode.Code == Mono.Cecil.Cil.Code.Newarr)
@@ -419,7 +436,8 @@ namespace Generater
                 for (int i = 0; i < method.Body.Instructions.Count; i++)
                 {
                     var il = method.Body.Instructions[i];
-                    if (il.OpCode.Code == Mono.Cecil.Cil.Code.Ldfld || il.OpCode.Code == Mono.Cecil.Cil.Code.Ldsfld)
+                    if (il.OpCode.Code == Mono.Cecil.Cil.Code.Ldfld || il.OpCode.Code == Mono.Cecil.Cil.Code.Ldsfld 
+                        || il.OpCode.Code == Mono.Cecil.Cil.Code.Ldflda || il.OpCode.Code == Mono.Cecil.Cil.Code.Ldsflda)
                     {
                         var field = il.Operand as FieldReference;
                         //访问自身的成员
@@ -675,6 +693,7 @@ namespace Generater
                 }
             }
 
+            //generic parameter vs generic instance
             if (!method.ReturnType.IsGenericParameter)
             {
                 if (!Filter(method.ReturnType))
@@ -846,6 +865,7 @@ namespace Generater
 
             if (type.IsGeneric() && !(IsDelegate(type))) // 
             {
+                
                 var typeDef = type.Resolve();
                 if (typeDef != null && typeDef.IsInterface) //nullable作为特殊的泛型可以支持
                 {
@@ -853,9 +873,16 @@ namespace Generater
                 }
                 else
                 {
-                    Log("ignorType: " + type.FullName);
-                    DropTypes.Add(type);
-                    return false;
+                    //if (type.IsGenericParameter)
+                    //{
+                    //    var b = 1;
+                    //}else
+                    {
+                        Log("ignorType: " + type.FullName);
+                        DropTypes.Add(type);
+                        return false;
+                    }
+                    
                 }
                 
             }
@@ -1476,7 +1503,7 @@ namespace Generater
 
         public static bool IsFieldSerializable(FieldDefinition field)
         {
-            if(field.IsPublic || field.CustomAttributes.Any(x=>x.AttributeType.Name == "SerializeFieldAttribute"))
+            if(field.IsPublic || field.CustomAttributes.Any(x=>x.AttributeType.Name == "SerializeFieldAttribute") || (field.FieldType.IsStruct() && field.FieldType.Resolve().CustomAttributes.Any(x => x.AttributeType.Name == "SerializableAttribute")))
             {
                 if(field.HasConstant || field.IsStatic || field.IsInitOnly)
                 {
@@ -1512,6 +1539,10 @@ namespace Generater
                 {
                     return true;
                 }
+                else if(td.IsString())
+                {
+                    return true;
+                }
                 else
                 {
                     //non-static class which has SerializableAttribute
@@ -1528,7 +1559,7 @@ namespace Generater
             else if (td.IsStruct(false))
             {
                 //Unity doest not support custom struct for serialization, use class with SerializableAttribute
-                if (td.Name.StartsWith("UnityEngine."))
+                if (td.FullName.StartsWith("UnityEngine.") || td.CustomAttributes.Any(x => x.AttributeType.Name == "SerializableAttribute"))
                 {
                     return true;
                 }
@@ -1642,8 +1673,10 @@ namespace Generater
             StringWriter writer = new StringWriter();
             var output = new MemberDeclearVisitor(false, writer, Binder.DecompilerSetting.CSharpFormattingOptions);
             if (stripInterface != null)
+            {
                 output.stripInterfaceSet = stripInterface;
-            if(tokenMap != null && tokenMap.TryGetValue(token, out var map))
+            }
+            if (tokenMap != null && tokenMap.TryGetValue(token, out var map))
             {
                 map.AcceptVisitor(output);
             }else

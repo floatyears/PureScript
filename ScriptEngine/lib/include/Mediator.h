@@ -81,6 +81,24 @@ extern "C"
 		unsigned int pinned : 1;  /* valid when included in a local var signature */
 	};
 
+	typedef uint32_t mono_array_size_t;
+	typedef double mono_64bitaligned_t;
+	typedef int32_t mono_array_lower_bound_t;
+
+	typedef struct {
+		mono_array_size_t length;
+		mono_array_lower_bound_t lower_bound;
+	} MonoArrayBounds;
+	struct _MonoArray {
+		MonoObject obj;
+		/* bounds is NULL for szarrays */
+		MonoArrayBounds* bounds;
+		/* total number of elements of the array */
+		mono_array_size_t max_length;
+		/* we use mono_64bitaligned_t to ensure proper alignment on platforms that need it */
+		mono_64bitaligned_t vector[MONO_ZERO_LEN_ARRAY];
+	};
+
     
 	void bind_mono_il2cpp_object(MonoObject* mono, Il2CppObject* il2cpp);
 	MonoObject* get_mono_object_impl(Il2CppObject* il2cpp, MonoClass* m_class,bool decide_class);
@@ -91,14 +109,16 @@ extern "C"
 
 	MonoString* get_mono_string(Il2CppString* str);
 	Il2CppString* get_il2cpp_string(MonoString* str);
-	MonoArray* get_mono_array_with_serializable(Il2CppArray* array);
+	MonoArray* get_mono_array_with_type(Il2CppArray* array, MonoType* etype);
+	MonoArray* get_mono_array_with_serializable(Il2CppArray* array, MonoType* etype);
 	MonoArray* get_mono_array(Il2CppArray * array);
-	MonoArray* get_mono_array_impl(Il2CppArray* array, bool includeSerializable);
+	MonoArray* get_mono_array_impl(Il2CppArray* array, MonoType* etype, bool includeSerializable);
 	Il2CppArray* get_il2cpp_array(MonoArray* array);
 	void copy_array_i2_mono(Il2CppArray* i2_array, MonoArray* mono_array);
 	void copy_il2cpp_struct_to_mono(Il2CppObject* il2cppObj, MonoObject* monoObj);
 	void copy_il2cpp_struct_to_mono_raw(void* il2cppObj, MonoObject* monoObj);
-	void copy_il2cpp_class_data_to_mono(Il2CppObject* i2obj, MonoObject* mobj);
+	void copy_il2cpp_proxy_data_to_mono(Il2CppObject* i2obj, MonoObject* mobj);
+	void copy_il2cpp_data_to_mono_only_current_class(Il2CppClass* i2class, Il2CppObject* i2obj, MonoObject* mobj);
 	void copy_mono_struct_to_il2cpp(MonoObject* monoObj, Il2CppObject* il2cppObj);
 	void copy_mono_struct_to_il2cpp_raw(void* monoData, Il2CppObject* il2cppObj);
 	void get_mono_struct(Il2CppObject* i2struct, MonoObject** monoStruct, Il2CppReflectionType* i2type, int32_t i2size);
@@ -151,7 +171,7 @@ extern "C"
 
 	bool inline is_struct(MonoClass* klass)
 	{
-		platform_log("check struct1: %s", mono_class_get_name(klass));
+		//platform_log("check struct1: %s", mono_class_get_name(klass));
 		MonoType* type = mono_class_get_type(klass);
 		return is_struct_type(type);
 	}
@@ -182,7 +202,7 @@ extern "C"
 	//proxy
 	Il2CppReflectionType* get_monobehaviour_proxy_rtype();
 	Il2CppClass* get_monobehaviour_proxy_class();
-
+	void process_proxy_component(Il2CppObject* gameObj);
 	//Exception
 	MonoException* get_mono_exception(Il2CppException* il2cpp);
 	Il2CppException* get_il2cpp_exception(MonoException* mono);

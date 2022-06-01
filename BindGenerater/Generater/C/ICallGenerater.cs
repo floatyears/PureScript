@@ -68,8 +68,24 @@ namespace Generater.C
 
             CS.Writer.WriteLine($"typedef {i2ReturnTypeName} (* ICallMethod) {CUtils.GetParamDefine(method, true)}");
             CS.Writer.WriteLine("static ICallMethod icall");
-            CS.Writer.WriteLine("if(!icall)",false);
-            CS.Writer.WriteLine("\t"+$"icall = (ICallMethod)il2cpp_resolve_icall(\"{CUtils.GetICallDescName(method)}\")");
+            CS.Writer.Start("if(!icall)");
+            CS.Writer.WriteLine($"icall = (ICallMethod)il2cpp_resolve_icall(\"{CUtils.GetICallDescName(method)}\")");
+            CS.Writer.Start("if(!icall)");
+            CS.Writer.WriteLine($"platform_log(\"{CUtils.GetICallDescName(method)} func not found\")");
+            //CS.Writer.WriteLine($"return {method.ReturnType.IsVoid() ? "" : }");
+            if (method.ReturnType.IsVoid()) //非void构造return value相对麻烦，不构造会直接导致崩溃
+            {
+                CS.Writer.WriteLine($"return");
+            }else if (method.ReturnType.IsPrimitive || method.ReturnType.Resolve().IsEnum)
+            {
+                CS.Writer.WriteLine($"return 0");
+            }
+            else if (!method.ReturnType.IsValueType)
+            {
+                CS.Writer.WriteLine($"return NULL");
+            }
+            CS.Writer.End();
+            CS.Writer.End();
 
             if (method.ReturnType.IsVoid())
                 CS.Writer.WriteLine("icall(", false);
