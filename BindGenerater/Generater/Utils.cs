@@ -1503,7 +1503,7 @@ namespace Generater
 
         public static bool IsFieldSerializable(FieldDefinition field)
         {
-            if(field.IsPublic || field.CustomAttributes.Any(x=>x.AttributeType.Name == "SerializeFieldAttribute"))
+            if(field.IsPublic || field.CustomAttributes.Any(x=>x.AttributeType.Name == "SerializeFieldAttribute") || (field.FieldType.IsStruct() && field.FieldType.Resolve().CustomAttributes.Any(x => x.AttributeType.Name == "SerializableAttribute")))
             {
                 if(field.HasConstant || field.IsStatic || field.IsInitOnly)
                 {
@@ -1539,6 +1539,10 @@ namespace Generater
                 {
                     return true;
                 }
+                else if(td.IsString())
+                {
+                    return true;
+                }
                 else
                 {
                     //non-static class which has SerializableAttribute
@@ -1555,7 +1559,7 @@ namespace Generater
             else if (td.IsStruct(false))
             {
                 //Unity doest not support custom struct for serialization, use class with SerializableAttribute
-                if (td.Name.StartsWith("UnityEngine."))
+                if (td.FullName.StartsWith("UnityEngine.") || td.CustomAttributes.Any(x => x.AttributeType.Name == "SerializableAttribute"))
                 {
                     return true;
                 }

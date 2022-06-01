@@ -70,6 +70,9 @@ static ReflectionTypeMap s_rtypeMap;
 typedef std::map<MonoClass*, bool> FullValueTypeMap;
 static FullValueTypeMap s_fullValueTypeMap;
 
+typedef std::map<Il2CppClass*, MonoClass*> Il2CppClassToMonoClassMap;
+static Il2CppClassToMonoClassMap s_il2cppClassToMonoClassMap;
+
 void on_mono_object_gc(void* user_data)
 {
 	if (user_data == NULL)
@@ -111,11 +114,15 @@ MonoObject* get_mono_object(Il2CppObject* il2cpp, MonoClass* m_class) {
 MonoObject* get_mono_object_impl(Il2CppObject* il2cpp, MonoClass* m_class, bool decide_class)
 {
 	if (il2cpp == NULL)
+	{
 		return NULL;
+	}
 
 	bool isWrapper = is_wrapper_class(il2cpp_object_get_class(il2cpp));
-	if(isWrapper)
+	if (isWrapper)
+	{
 		return get_mono_wrapper_object(il2cpp, m_class);
+	}
 
 	uint32_t monoHandle = 0;
 	MonoObject* monoObj = NULL;
@@ -221,7 +228,7 @@ void copy_il2cpp_struct_to_mono_raw(void* il2cppData, MonoObject* monoObj)
 	}
 }
 
-void copy_il2cpp_class_data_to_mono(Il2CppObject* i2obj, MonoObject* mobj)
+void copy_il2cpp_proxy_data_to_mono(Il2CppObject* i2obj, MonoObject* mobj)
 {
 	if (i2obj == NULL) {
 
@@ -234,15 +241,25 @@ void copy_il2cpp_class_data_to_mono(Il2CppObject* i2obj, MonoObject* mobj)
 		return;
 	}
 	Il2CppClass* i2class = il2cpp_object_get_class(i2obj);
-	const Il2CppType* i2type = il2cpp_class_get_type(i2class);
-	MonoClass* mclass = mono_object_get_class(mobj);
-	void* iter = NULL;
-	FieldInfo* field = NULL;
-	FieldInfo* next_field = NULL;
-	int total_size = il2cpp_class_instance_size(i2class);
+	Il2CppClass* parent = NULL; // il2cpp_class_get_parent(i2class);
 #if DEBUG
+	int total_size = il2cpp_class_instance_size(i2class);
 	platform_log("[copy_il2cpp_class_data_to_mono] total_size: %d, field count: %d", total_size, il2cpp_class_num_fields(i2class));
 #endif
+	do
+	{
+		copy_il2cpp_data_to_mono_only_current_class(i2class, i2obj, mobj);
+		parent = il2cpp_class_get_parent(i2class);
+		i2class = parent;
+	} while (parent != get_monobehaviour_proxy_class());
+}
+
+void copy_il2cpp_data_to_mono_only_current_class (Il2CppClass* i2class, Il2CppObject* i2obj, MonoObject* mobj)
+{
+
+	MonoClass* mclass = mono_object_get_class(mobj);
+	FieldInfo* field = NULL;
+	void* iter = NULL;
 	while (field = il2cpp_class_get_fields(i2class, &iter))
 	{
 		const Il2CppType* ftype = il2cpp_field_get_type(field);
@@ -263,21 +280,36 @@ void copy_il2cpp_class_data_to_mono(Il2CppObject* i2obj, MonoObject* mobj)
 		int moffset = mono_field_get_offset(mfield);
 		int offset = il2cpp_field_get_offset(field);
 
-		if (is_primitive_il2cpp(ftype) || ftype->type == MONO_TYPE_ENUM)
+		if (is_primitive_il2cpp(ftype))
 		{
 			//next_field = il2cpp_class_get_fields(i2class, &iter);
 			//int next_offset = next_field != NULL ? il2cpp_field_get_offset(next_field) : total_size;
 			//iter = field; //roll back to current field
-
-			int size = get_primitive_type_size(mftype);
-			//il2cpp_gc_wbarrier_set_field(i2obj, *((char*)i2obj + sizeof(Il2CppObject)), (char*)monoObj + sizeof(MonoObject));
+			//enum在il2cpp为int
+			if (ftype->type == IL2CPP_TYPE_ENUM)
+			{
+				int size = 4;
 #if DEBUG
-			platform_log("[copy_il2cpp_class_data_to_mono] primitive type memcpy: %d-%d-%d", moffset, offset, size);
+				platform_log("[copy_il2cpp_class_data_to_mono] enum type memcpy: %d-%d-%d", moffset, offset, size);
 #endif
-			memcpy((char*)mobj + moffset, (char*)i2obj + offset, size);
+				memcpy((char*)mobj + moffset, (char*)i2obj + offset, size);
+			}
+			else
+			{
+				int size = get_primitive_type_size(mftype);
+				//il2cpp_gc_wbarrier_set_field(i2obj, *((char*)i2obj + sizeof(Il2CppObject)), (char*)monoObj + sizeof(MonoObject));
+#if DEBUG
+				platform_log("[copy_il2cpp_class_data_to_mono] primitive type memcpy: %d-%d-%d", moffset, offset, size);
+#endif
+				memcpy((char*)mobj + moffset, (char*)i2obj + offset, size);
+			}
+
 		}
 		else if (ftype->type == MONO_TYPE_STRING) //string类型
 		{
+#if DEBUG
+			platform_log("[copy_il2cpp_class_data_to_mono] string type: %d-%d", moffset, offset);
+#endif
 			MonoString* mstr = get_mono_string((Il2CppString*)il2cpp_field_get_value_object(field, i2obj));
 			mono_gc_wbarrier_set_field(mobj, (char*)mobj + moffset, (MonoObject*)mstr);
 		}
@@ -285,7 +317,7 @@ void copy_il2cpp_class_data_to_mono(Il2CppObject* i2obj, MonoObject* mobj)
 		{
 			MonoObject** mmobj = NULL;
 			//struct是by value形式传递，所以不用bind
-			Il2CppReflectionType* i2rtype = (Il2CppReflectionType*)il2cpp_type_get_object(i2type);
+			Il2CppReflectionType* i2rtype = (Il2CppReflectionType*)il2cpp_type_get_object(ftype);
 			get_mono_struct(il2cpp_field_get_value_object(field, i2obj), mmobj, i2rtype, mono_class_value_size(mfclass, NULL));
 			mono_gc_wbarrier_set_field(mobj, (char*)mobj + moffset, (MonoObject*)mmobj);
 		}
@@ -293,13 +325,30 @@ void copy_il2cpp_class_data_to_mono(Il2CppObject* i2obj, MonoObject* mobj)
 		{
 			//TODO: to implement
 			MonoClass* meklass = mono_class_get_element_class(mfclass);
-			MonoArray* marray = get_mono_array_with_serializable((Il2CppArray*)il2cpp_field_get_value_object(field, i2obj));
+			MonoArray* marray = get_mono_array_with_serializable((Il2CppArray*)il2cpp_field_get_value_object(field, i2obj), mono_class_get_type(meklass));
 			//array对象本身不用bind，因为bind element对象就足够了
 			/*if (i2Array != NULL)
 			{
 				bind_mono_il2cpp_object(monoObj, (Il2CppObject*)i2Array);
 			}*/
+#if DEBUG
+			platform_log("[copy_il2cpp_class_data_to_mono] array type: %d-%d-%d-%d", moffset, offset, sizeof(MonoArray), sizeof(MonoObject));
+#endif
+			if (marray == NULL)
+			{
+				platform_log("mono array is null");
+			}
+			else
+			{
+				//platform_log("mono array length: %d", mono_array_length(marray));
+			}
+			
 			mono_gc_wbarrier_set_field(mobj, (char*)mobj + moffset, (MonoObject*)marray);
+			//mono_field_set_value(mobj, mfield, marray);
+			//memcpy((char*)mobj + moffset, (char*)i2obj + offset, size);
+			//MonoArray* value;
+			//mono_field_get_value(mobj, mfield, &value);
+			//platform_log("mono array value: %d", value);
 		}
 		else if (ftype->type == MONO_TYPE_CLASS)
 		{
@@ -321,7 +370,9 @@ void copy_il2cpp_class_data_to_mono(Il2CppObject* i2obj, MonoObject* mobj)
 				{
 					//Il2CppClass* i2fclass = il2cpp_class_from_type(ftype);
 					MonoObject* retobj = mono_object_new(g_domain, mfclass);
-					copy_il2cpp_class_data_to_mono(il2cpp_field_get_value_object(field, i2obj), retobj);
+					Il2CppObject* fobj = il2cpp_field_get_value_object(field, i2obj);
+					Il2CppClass* fclass = il2cpp_object_get_class(fobj);
+					copy_il2cpp_data_to_mono_only_current_class(fclass, fobj, retobj);
 					mono_gc_wbarrier_set_field(mobj, (char*)mobj + moffset, retobj);
 				}
 				else
@@ -471,17 +522,22 @@ Il2CppString* get_il2cpp_string(MonoString* str)
 
 }
 
-MonoArray* get_mono_array_with_serializable(Il2CppArray* array)
+MonoArray* get_mono_array_with_type(Il2CppArray* array, MonoType* etype)
 {
-	return get_mono_array_impl(array, true);
+	return get_mono_array_impl(array, etype, true);
+}
+
+MonoArray* get_mono_array_with_serializable(Il2CppArray* array, MonoType* etype)
+{
+	return get_mono_array_impl(array, etype, true);
 }
 
 MonoArray* get_mono_array(Il2CppArray* array)
 {
-	return get_mono_array_impl(array, false);
+	return get_mono_array_impl(array, NULL, false);
 }
 
-MonoArray* get_mono_array_impl(Il2CppArray * array, bool includeSerializable)
+MonoArray* get_mono_array_impl(Il2CppArray * array, MonoType* etype, bool includeSerializable)
 {
 	MonoArray* monoArray = NULL;
 	if (array == NULL)
@@ -494,22 +550,36 @@ MonoArray* get_mono_array_impl(Il2CppArray * array, bool includeSerializable)
 	Il2CppClass* aklass = il2cpp_object_get_class((Il2CppObject*)array);
 	Il2CppClass* eklass = il2cpp_class_get_element_class(aklass);
 
-	platform_log("array class element : %s", il2cpp_class_get_name(aklass));
+	//platform_log("array class element : %s", il2cpp_class_get_name(aklass));
 
 	if (eklass == NULL)
 	{
 		platform_log("array class element is not Il2CppObject: %s", il2cpp_class_get_name(aklass));
 	}
 	
-	MonoClass* monoklass = get_mono_class(eklass);
+	MonoClass* monoklass = NULL;
+	if (etype != NULL)
+	{
+		monoklass = mono_class_from_mono_type(etype);
+	}
+	else
+	{
+		monoklass = get_mono_class(eklass);
+	}
     if(monoklass == NULL)
     {
-		platform_log("no match mono class with Il2CppObject: %s[], len: %d", il2cpp_class_get_name(eklass), len);
 		if (len > 0) {
 			Il2CppObject* il2cppObj = il2cpp_array_get(array, Il2CppObject*, 0);
 			MonoObject* monoObj = get_mono_object(il2cppObj, NULL);
 			if (monoObj != NULL)
+			{
 				monoklass = mono_object_get_class(monoObj);
+			}
+			else
+			{
+				platform_log("no match mono class with Il2CppObject: %s[]-%s[], len: %d", il2cpp_class_get_name(eklass), il2cpp_class_get_name(il2cpp_object_get_class(il2cppObj)), len);
+				return monoArray;
+			}
 		}
 		else
 		{
@@ -579,6 +649,10 @@ MonoArray* get_mono_array_impl(Il2CppArray * array, bool includeSerializable)
 				Il2CppObject* il2cppObj = il2cpp_array_get(array, Il2CppObject*, i);
 				//platform_log("array class element15 : %s", il2cpp_class_get_name(il2cpp_object_get_class(il2cppObj)));
 				MonoObject* monoObj = get_mono_object(il2cppObj, monoklass);
+				/*if (monoObj == NULL)
+				{
+					platform_log("mono object %s is null", mono_class_get_name(monoklass));
+				}*/
 				mono_array_setref(monoArray, i, monoObj);
 			}
 		}
@@ -594,8 +668,9 @@ MonoArray* get_mono_array_impl(Il2CppArray * array, bool includeSerializable)
 					for (int i = 0; i < len; i++)
 					{
 						Il2CppObject* il2cppObj = il2cpp_array_get(array, Il2CppObject*, i);
+						Il2CppClass* i2class = il2cpp_object_get_class(il2cppObj);
 						MonoObject* monoObj = mono_object_new(g_domain, monoklass);
-						copy_il2cpp_class_data_to_mono(il2cppObj, monoObj);
+						copy_il2cpp_data_to_mono_only_current_class(i2class, il2cppObj, monoObj);
 						mono_array_setref(monoArray, i, monoObj);
 					}
 				}
@@ -842,7 +917,8 @@ int32_t get_primitive_type_size(MonoType* type)
 	{
 		return 8;
 	}
-	platform_log("unsupported type size: %d", type->type);
+	platform_log("unsupported type: %d", type->type);
+	return 1; //默认为1，避免越界
 }
 
 bool is_full_value_struct(MonoClass* klass)
@@ -913,31 +989,37 @@ Il2CppClass* get_il2cpp_class(MonoClass* mclass)
 	return il2cppClass;
 }
 
-MonoClass* get_mono_class(Il2CppClass* mclass) 
+MonoClass* get_mono_class(Il2CppClass* i2class) 
 {
-	const char* cname = il2cpp_class_get_name(mclass);
-
-	Il2CppClass* dc = il2cpp_class_get_declaring_type(mclass);
-
-	static std::stringstream ss;
-	if (dc != NULL)
+	Il2CppClassToMonoClassMap::iterator iter = s_il2cppClassToMonoClassMap.find(i2class);
+	if (iter != s_il2cppClassToMonoClassMap.end())
 	{
-		ss.str("");
-		const char* dtname = il2cpp_class_get_name(dc);
-		ss << dtname << '/' << cname;
-		mclass = dc;
+		return iter->second;
 	}
 
-	const char* ns = il2cpp_class_get_namespace(mclass);
+	const char* cname = il2cpp_class_get_name(i2class);
+
+	Il2CppClass* dclass = il2cpp_class_get_declaring_type(i2class);
+
+	static std::stringstream ss;
+	if (dclass != NULL)
+	{
+		ss.str("");
+		const char* dtname = il2cpp_class_get_name(dclass);
+		ss << dtname << '/' << cname;
+		i2class = dclass;
+	}
+
+	const char* ns = il2cpp_class_get_namespace(i2class);
     if(is_wrapper_name_space(ns))
         return NULL;
 	
-	const Il2CppImage* mimage = il2cpp_class_get_image(mclass);
+	const Il2CppImage* mimage = il2cpp_class_get_image(i2class);
 	const char* asmName = il2cpp_image_get_name(mimage);
 
 	MonoClass* monoClass = NULL;
 	
-	if (dc != NULL)
+	if (dclass != NULL)
 	{
 		const std::string& tmp = ss.str();
 		monoClass = mono_search_class(asmName, ns, tmp.c_str());
@@ -945,6 +1027,11 @@ MonoClass* get_mono_class(Il2CppClass* mclass)
 	else
 	{
 		monoClass = mono_search_class(asmName, ns,cname);
+	}
+
+	if (monoClass != NULL)
+	{
+		s_il2cppClassToMonoClassMap[i2class] = monoClass;
 	}
 	
 	return monoClass;
@@ -967,8 +1054,14 @@ Il2CppReflectionType* get_il2cpp_reflection_type(MonoReflectionType * type)
 	MonoImage* mimage = mono_class_get_image(mclass);
 	const char* asmName = mono_image_get_name(mimage);
 
-	if (need_monobehaviour_wrap(asmName,mclass))
+	if (need_monobehaviour_wrap(asmName, mclass))
+	{
 		return get_monobehaviour_wrapper_rtype();//
+	}
+	else if (is_reloadable(asmName)) //理论上定义在interpret内的mono Type无法找到对应的il2cpp Type
+	{
+		return NULL;
+	}
 
 	
 	//const char* asmName = "Assembly-CSharp.dll";//TODO:the asmName must be same in mono and il2cpp
@@ -1073,7 +1166,18 @@ MonoException* get_mono_exception(Il2CppException* il2cpp)
 
 	MonoString* _message = get_mono_string(message);
 	MonoString* _stack = get_mono_string(trace);
-	platform_log("%s\n%s", _message != NULL ? mono_string_to_utf8(_message) : "", _stack != NULL ? mono_string_to_utf8(_stack) : "");
+
+	char* _newmsg = _message != NULL ? mono_string_to_utf8(_message) : NULL;
+	char* _newstk = _stack != NULL ? mono_string_to_utf8(_stack) : NULL;
+	platform_log("%s\n%s", _newmsg != NULL ? _newmsg : "", _newstk != NULL ? _newstk : "");
+	if (_newmsg != NULL)
+	{
+		mono_free(_newmsg);
+	}
+	if (_newstk != NULL)
+	{
+		mono_free(_newstk);
+	}
 	//mono will crash when _message or _stack is NULL 
 	static MonoString* emptyMsg = mono_string_new_len(g_domain, "empty message", 14);
 	//static MonoString* emptyStack = mono_string_new_len(g_domain, "empty stack", 12);
@@ -1145,20 +1249,20 @@ void raise_il2cpp_exception_runtime(const char* msg)
 void call_wrapper_init(Il2CppObject* il2cpp, MonoObject* mono)
 {
     Il2CppClass* klass = il2cpp_object_get_class(il2cpp);
-    
-    /*if (!is_wrapper_class(klass))
-     return;*/
-    
-    WrapperHead* il2cppHead = (WrapperHead*)(il2cpp);
-    if(il2cppHead->handle != 0)
-        mono_gchandle_free(il2cppHead->handle);
-    il2cppHead->handle = mono_gchandle_new(mono, FALSE);
-    
-    if (klass == get_monobehaviour_wrapper_class())
-    {
-        WObjectHead* monoHead = (WObjectHead*)(mono);
-        monoHead->objectPtr = il2cpp;
-    }
+    //
+    ///*if (!is_wrapper_class(klass))
+    // return;*/
+    //
+    //WrapperHead* il2cppHead = (WrapperHead*)(il2cpp);
+    //if(il2cppHead->handle != 0)
+    //    mono_gchandle_free(il2cppHead->handle);
+    //il2cppHead->handle = mono_gchandle_new(mono, FALSE);
+    //
+    //if (klass == get_monobehaviour_wrapper_class())
+    //{
+    //    WObjectHead* monoHead = (WObjectHead*)(mono);
+    //    monoHead->objectPtr = il2cpp;
+    //}
     
     const MethodInfo* method = il2cpp_class_get_method_from_name(klass, "Init", 0);
     
@@ -1190,6 +1294,23 @@ MonoObject* get_mono_wrapper_object_delay_init(Il2CppObject* il2cpp, MonoClass* 
 	{
 		mono = mono_object_new(g_domain, m_class);
 		mono_runtime_object_init(mono);
+
+		Il2CppClass* klass = il2cpp_object_get_class(il2cpp);
+
+		/*if (!is_wrapper_class(klass))
+		 return;*/
+
+		WrapperHead* il2cppHead = (WrapperHead*)(il2cpp);
+		if (il2cppHead->handle != 0)
+			mono_gchandle_free(il2cppHead->handle);
+		il2cppHead->handle = mono_gchandle_new(mono, FALSE);
+
+		if (klass == get_monobehaviour_wrapper_class())
+		{
+			WObjectHead* monoHead = (WObjectHead*)(mono);
+			monoHead->objectPtr = il2cpp;
+		}
+
 		if (!delay_init)
 		{
 			call_wrapper_init(il2cpp, mono);
@@ -1249,7 +1370,12 @@ Il2CppReflectionType* get_monobehaviour_proxy_rtype()
 
 bool need_monobehaviour_wrap(const char* asm_name, MonoClass* m_class)
 {
-	static MonoClass* monobehaviour = mono_search_class("UnityEngine.CoreModule.dll", "UnityEngine", "MonoBehaviour");
+	static MonoClass* monobehaviour;
+	if (monobehaviour == NULL)
+	{
+		monobehaviour = mono_search_class("UnityEngine.CoreModule.dll", "UnityEngine", "MonoBehaviour");
+	}
+	//只有interpret内的type才需要wrapper，因为il2cpp内没有此定义
 	if (is_reloadable(asm_name))
 	{
 		return mono_class_is_subclass_of(m_class, monobehaviour, FALSE);
@@ -1257,6 +1383,97 @@ bool need_monobehaviour_wrap(const char* asm_name, MonoClass* m_class)
 
 	return FALSE;
 }
+
+
+Il2CppObject* UnityEngine_Component_get_gameObject_il2cpp(Il2CppObject* thiz)
+{
+	typedef Il2CppObject* (*ICallMethod) (Il2CppObject* thiz);
+	static ICallMethod icall;
+	if (!icall)
+		icall = (ICallMethod)il2cpp_resolve_icall("UnityEngine.Component::get_gameObject");
+	Il2CppObject* i2res = icall(thiz);
+	return i2res;
+}
+
+Il2CppString* UnityEngine_Object_GetName_il2cpp(Il2CppObject* thiz)
+{
+	typedef Il2CppString* (*ICallMethod) (Il2CppObject* thiz);
+	static ICallMethod icall;
+	if (!icall)
+		icall = (ICallMethod)il2cpp_resolve_icall("UnityEngine.Object::GetName");
+	Il2CppString* i2res = icall(thiz);
+	return i2res;
+}
+
+Il2CppObject* UnityEngine_GameObject_Internal_AddComponentWithType_il2cpp(Il2CppObject* obj, Il2CppReflectionType* type)
+{
+	typedef Il2CppObject* (*AddComponentWithType) (Il2CppObject*, Il2CppReflectionType*);
+	static AddComponentWithType icall;
+	if (!icall)
+		icall = (AddComponentWithType)il2cpp_resolve_icall("UnityEngine.GameObject::Internal_AddComponentWithType");
+	Il2CppObject* res = icall(obj, type);
+	return res;
+}
+
+void process_proxy_component(Il2CppObject* gameObj)
+{
+	typedef Il2CppArray* (*ICallMethod) (Il2CppObject* thiz, Il2CppReflectionType* searchType, bool useSearchTypeAsArrayReturnType, bool recursive, bool includeInactive, bool reverse, Il2CppObject* resultList);
+	static ICallMethod icall;
+	if (!icall)
+		icall = (ICallMethod)il2cpp_resolve_icall("UnityEngine.GameObject::GetComponentsInternal");
+
+	Il2CppReflectionType* i2searchType = get_monobehaviour_proxy_rtype();
+	Il2CppArray* retArr = icall(gameObj, i2searchType, 1, 1, 1, 0, NULL);
+	int len = il2cpp_array_length(retArr);
+	int processed = 0;
+	std::map<Il2CppObject*, MonoObject*> tempMap;
+	for (int i = 0; i < len; i++) {
+		Il2CppObject* i2obj = il2cpp_array_get(retArr, Il2CppObject*, i);
+		WrapperHead* i2head = (WrapperHead*)(i2obj);
+		if (i2head->handle != 0) {
+			//platform_log("proxy component skip 1 component");
+			continue;
+		}
+		//Il2CppObject* go = UnityEngine_Component_get_gameObject(i2obj);
+		Il2CppClass* i2class = il2cpp_object_get_class(i2obj);
+		platform_log("proxy component class: %s", il2cpp_class_get_name(i2class));
+		MonoClass* mclass = get_mono_class(i2class);
+		if (mclass == NULL) {
+			platform_log("proxy component class not found: %s", il2cpp_class_get_name(i2class));
+			continue;
+		}
+		//获取当前component所在的gameObject
+		Il2CppObject* go = UnityEngine_Component_get_gameObject_il2cpp(i2obj);
+
+#if DEBUG
+		Il2CppString* goname = UnityEngine_Object_GetName_il2cpp(go);
+		char* retname = mono_string_to_utf8(get_mono_string(goname));
+		platform_log("proxy component gameobject name : %s", retname);
+		mono_free(retname);
+#endif
+		//添加monobehaviour wrapper
+		Il2CppObject* comp = UnityEngine_GameObject_Internal_AddComponentWithType_il2cpp(go, get_monobehaviour_wrapper_rtype());
+		//添加mono侧的monobehaviour
+		MonoObject* mobj = get_mono_wrapper_object_delay_init(comp, mclass, true);
+		//复制数据
+		copy_il2cpp_proxy_data_to_mono(i2obj, mobj);
+		i2head->handle = 1;
+		//初始化
+		//call_wrapper_init(comp, mobj);
+		tempMap[comp] = mobj;
+		processed++;
+	}
+	platform_log("proxy component count: %d", processed);
+
+	//TODO:这里执行初始化，这个过程可能导致某些对象被gc，所以要判断下是否存在？
+	std::map<Il2CppObject*, MonoObject*>::iterator iter;
+	for (iter = tempMap.begin(); iter != tempMap.end(); iter++) 
+	{
+		//初始化
+		call_wrapper_init(iter->first, iter->second);
+	}
+}
+
 
 #pragma endregion
 

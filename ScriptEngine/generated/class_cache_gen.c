@@ -294,6 +294,13 @@ MonoClass* mono_get_class_UnityEngine_AudioClip()
 		klass = mono_get_class(mono_get_image_UnityEngine_AudioModule(),"UnityEngine","AudioClip");
 	return klass;
 }
+MonoClass* mono_get_class_System_Array()
+{
+	static MonoClass* klass;
+	if(!klass)
+		klass = mono_get_class(mono_get_image_mscorlib(),"System","Array");
+	return klass;
+}
 MonoClass* mono_get_class_UnityEngine_RenderTexture()
 {
 	static MonoClass* klass;
@@ -362,6 +369,13 @@ MonoClass* mono_get_class_UnityEngine_Texture2D()
 	static MonoClass* klass;
 	if(!klass)
 		klass = mono_get_class(mono_get_image_UnityEngine_CoreModule(),"UnityEngine","Texture2D");
+	return klass;
+}
+MonoClass* mono_get_class_UnityEngine_ResourceRequest()
+{
+	static MonoClass* klass;
+	if(!klass)
+		klass = mono_get_class(mono_get_image_UnityEngine_CoreModule(),"UnityEngine","ResourceRequest");
 	return klass;
 }
 MonoClass* mono_get_class_UnityEngine_Coroutine()
@@ -657,6 +671,16 @@ Il2CppClass* il2cpp_get_class_UnityEngine_Shader()
 	}
 	return klass;
 }
+Il2CppClass* il2cpp_get_class_UnityEngine_GraphicsBuffer()
+{
+	static Il2CppClass* klass;
+	if(!klass)
+	{
+		klass = il2cpp_get_class(il2cpp_get_image_UnityEngine_CoreModule(),"UnityEngine","GraphicsBuffer");
+		if(klass == NULL){ platform_log("il2cpp class not found: %s-%s", "UnityEngine", "GraphicsBuffer"); };
+	}
+	return klass;
+}
 Il2CppClass* il2cpp_get_class_UnityEngine_MaterialPropertyBlock()
 {
 	static Il2CppClass* klass;
@@ -844,16 +868,6 @@ Il2CppClass* il2cpp_get_class_UnityEngine_ComputeShader()
 	{
 		klass = il2cpp_get_class(il2cpp_get_image_UnityEngine_CoreModule(),"UnityEngine","ComputeShader");
 		if(klass == NULL){ platform_log("il2cpp class not found: %s-%s", "UnityEngine", "ComputeShader"); };
-	}
-	return klass;
-}
-Il2CppClass* il2cpp_get_class_UnityEngine_ShaderVariantCollection()
-{
-	static Il2CppClass* klass;
-	if(!klass)
-	{
-		klass = il2cpp_get_class(il2cpp_get_image_UnityEngine_CoreModule(),"UnityEngine","ShaderVariantCollection");
-		if(klass == NULL){ platform_log("il2cpp class not found: %s-%s", "UnityEngine", "ShaderVariantCollection"); };
 	}
 	return klass;
 }

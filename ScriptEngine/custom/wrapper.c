@@ -55,14 +55,28 @@ void InvokeMonoBehaviourFunction(Il2CppObject* obj, void* methodPtr)
 
 Il2CppObject* create_il2cpp_enumerator_wrapper(MonoObject* mono)
 {
-	Il2CppClass* m_class = get_enumerator_wrapper_class();
+	Il2CppClass* i2class = get_enumerator_wrapper_class();
 	if (mono == NULL)
 		return NULL;
 
-	Il2CppObject* il2cpp = il2cpp_object_new(m_class);
+	Il2CppObject* il2cpp = il2cpp_object_new(i2class);
 	
+	/*if (!is_wrapper_class(klass))
+	 return;*/
+	
+	WrapperHead* il2cppHead = (WrapperHead*)(il2cpp);
+	if(il2cppHead->handle != 0)
+	    mono_gchandle_free(il2cppHead->handle);
+	il2cppHead->handle = mono_gchandle_new(mono, FALSE);
+	
+	if (i2class == get_monobehaviour_wrapper_class())
+	{
+	    WObjectHead* monoHead = (WObjectHead*)(mono);
+	    monoHead->objectPtr = il2cpp;
+	}
+
 	debug_mono_obj(mono);
-	call_wrapper_init(il2cpp,mono);
+	call_wrapper_init(il2cpp, mono);
 	return il2cpp;
 }
 Il2CppClass* get_enumerator_wrapper_class()

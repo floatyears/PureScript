@@ -76,6 +76,7 @@ Il2CppObject* ConvertObjectMonoToIL2Cpp(MonoObject* monoObj)
 		return NULL;
 	}
 	MonoClass* klass = mono_object_get_class(monoObj);
+	char* kname = mono_class_get_name(klass);
 	MonoType* type = mono_class_get_type(klass);
 	if (is_primitive(type) || type->type == MONO_TYPE_ENUM)
 	{
@@ -117,13 +118,18 @@ Il2CppObject* ConvertObjectMonoToIL2Cpp(MonoObject* monoObj)
 	}
 	else if(type->type == MONO_TYPE_CLASS)
 	{
-		if (mono_class_is_subclass_of(klass, get_wobject_class(), 0))
+		//System.Type
+		if (strcmp(kname, "RuntimeType") == 0)
+		{
+			return (void*)get_il2cpp_reflection_type((MonoReflectionType*)monoObj);
+		}
+		else if (mono_class_is_subclass_of(klass, get_wobject_class(), 0))
 		{
 			Il2CppClass* i2class = get_il2cpp_class(klass);
 			WObjectHead* monoHead = (WObjectHead*)(monoObj);
 			if (monoHead->objectPtr == NULL)
 			{
-				platform_log("get il2cpp object from mono fail, type:%s", mono_class_get_name(klass));
+				platform_log("[ConvertObjectMonoToIL2Cpp] get il2cpp object from mono fail, type:%s", kname);
 				return NULL;
 				//return NULL;
 			}
@@ -131,13 +137,13 @@ Il2CppObject* ConvertObjectMonoToIL2Cpp(MonoObject* monoObj)
 		}
 		else
 		{
-			platform_log("array element class must be subclass of WObject: %s", mono_class_get_name(klass));
+			platform_log("[ConvertObjectMonoToIL2Cpp]  array element class must be subclass of WObject: %s", kname);
 			return NULL;
 		}
 	}
 	else
 	{
-		platform_log("convert object mono to il2cpp fail, type not support: %s", mono_class_get_name(klass));
+		platform_log("convert object mono to il2cpp fail, type not support: %s", kname);
 		return NULL;
 	}
 	
@@ -407,6 +413,7 @@ float UnityEngine_Time_GetTime()
 	return res;
 }*/
 
+
 MonoObject* UnityEngine_GameObject_Internal_AddComponentWithType(MonoObject* obj, MonoReflectionType* type)
 {
 	typedef Il2CppObject* (*AddComponentWithType) (Il2CppObject*, Il2CppReflectionType*);
@@ -444,7 +451,20 @@ MonoArray* UnityEngine_GameObject_GetComponentsInternal(MonoObject* obj, MonoRef
 	}
 	Il2CppArray* res = icall(il2cppObj, il2cppType, useSearchTypeAsArrayReturnType, recursive, includeInactive, reverse, NULL);//resultList
 
-	MonoArray* monoRes = get_mono_array(res);
+	MonoArray* monoRes = get_mono_array_with_type(res, mono_reflection_type_get_type(type));
+#if DEBUG
+	MonoClass* klass = mono_class_from_mono_type(mono_reflection_type_get_type(type));
+	char* name = mono_class_get_name(klass);
+	if (strcmp(name, "LineTrail") == 0)
+	{
+		MonoObject* ret = mono_array_addr(monoRes, MonoObject, 0);
+		MonoClassField* field = mono_class_get_field_from_name(klass, "posOffsets");
+		MonoArray* value;
+		mono_field_get_value(ret, field, &value);
+		platform_log("getcomponents: %d", value);
+	}
+#endif
+	
 	return monoRes;
 }
 
