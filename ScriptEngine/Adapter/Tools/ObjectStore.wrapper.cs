@@ -57,8 +57,8 @@ public static class ObjectStore
 
     public static IntPtr Store(WObject obj,IntPtr handle)
     {
-        if (obj == null)
-            return IntPtr.Zero;
+        // if (obj == null)
+        //     return IntPtr.Zero;
 
         return StoreObject(obj,handle);
     }
@@ -66,8 +66,8 @@ public static class ObjectStore
     public static T Get<T>(IntPtr handle)
         where T : WObject
     {
-        if (handle == IntPtr.Zero)
-            return null;
+        // if (handle == IntPtr.Zero)
+        //     return null;
 
         var obj = GetObject(handle);
         return obj as T;

@@ -214,11 +214,11 @@ void copy_il2cpp_struct_to_mono_raw(void* il2cppData, MonoObject* monoObj)
 		}
 		else if(is_struct_type(field_type))
 		{
-			MonoObject** monoobj = NULL;
-			get_mono_struct((Il2CppObject*)((char*)il2cppData + offset), monoobj, get_il2cpp_reflection_type(mono_type_get_object(g_domain, type)), mono_class_value_size(klass, NULL));
+			MonoObject* monoobj = NULL;
+			get_mono_struct((Il2CppObject*)((char*)il2cppData + offset), &monoobj, get_il2cpp_reflection_type(mono_type_get_object(g_domain, type)), mono_class_value_size(klass, NULL));
 			if (monoobj != NULL)
 			{
-				mono_gc_wbarrier_set_field(monoObj, (char*)monoObj + offset, *monoobj);
+				mono_gc_wbarrier_set_field(monoObj, (char*)monoObj + offset, monoobj);
 			}
 		}
 		else
@@ -294,6 +294,13 @@ void copy_il2cpp_data_to_mono_only_current_class (Il2CppClass* i2class, Il2CppOb
 #endif
 				memcpy((char*)mobj + moffset, (char*)i2obj + offset, size);
 			}
+			else if (mftype->type == MONO_TYPE_VALUETYPE) //mono是enum，il2cpp是int32
+			{
+				memcpy((char*)mobj + moffset, (char*)i2obj + offset, 4);
+#if DEBUG
+				platform_log("[copy_il2cpp_class_data_to_mono] value type memcpy: %d-%d-%d, value1-%d", moffset, offset, 4, *(int*)((char*)mobj + moffset));
+#endif
+			}
 			else
 			{
 				int size = get_primitive_type_size(mftype);
@@ -315,10 +322,10 @@ void copy_il2cpp_data_to_mono_only_current_class (Il2CppClass* i2class, Il2CppOb
 		}
 		else if (is_struct_type_il2cpp(ftype))
 		{
-			MonoObject** mmobj = NULL;
+			MonoObject* mmobj = NULL;
 			//struct是by value形式传递，所以不用bind
 			Il2CppReflectionType* i2rtype = (Il2CppReflectionType*)il2cpp_type_get_object(ftype);
-			get_mono_struct(il2cpp_field_get_value_object(field, i2obj), mmobj, i2rtype, mono_class_value_size(mfclass, NULL));
+			get_mono_struct(il2cpp_field_get_value_object(field, i2obj), &mmobj, i2rtype, mono_class_value_size(mfclass, NULL));
 			mono_gc_wbarrier_set_field(mobj, (char*)mobj + moffset, (MonoObject*)mmobj);
 		}
 		else if (ftype->type == MONO_TYPE_SZARRAY) //
@@ -343,12 +350,13 @@ void copy_il2cpp_data_to_mono_only_current_class (Il2CppClass* i2class, Il2CppOb
 				//platform_log("mono array length: %d", mono_array_length(marray));
 			}
 			
+			mono_gchandle_new((MonoObject*)marray, false);
 			mono_gc_wbarrier_set_field(mobj, (char*)mobj + moffset, (MonoObject*)marray);
 			//mono_field_set_value(mobj, mfield, marray);
 			//memcpy((char*)mobj + moffset, (char*)i2obj + offset, size);
-			//MonoArray* value;
-			//mono_field_get_value(mobj, mfield, &value);
-			//platform_log("mono array value: %d", value);
+			MonoArray* value;
+			mono_field_get_value(mobj, mfield, &value);
+			platform_log("mono array value: %d, parent obj: %d", value, mobj);
 		}
 		else if (ftype->type == MONO_TYPE_CLASS)
 		{
@@ -556,6 +564,8 @@ MonoArray* get_mono_array_impl(Il2CppArray * array, MonoType* etype, bool includ
 	{
 		platform_log("array class element is not Il2CppObject: %s", il2cpp_class_get_name(aklass));
 	}
+
+	bool isMonoBehaviourWrapper = eklass == get_monobehaviour_wrapper_class();
 	
 	MonoClass* monoklass = NULL;
 	if (etype != NULL)
@@ -586,7 +596,7 @@ MonoArray* get_mono_array_impl(Il2CppArray * array, MonoType* etype, bool includ
 			return monoArray;
 		}
     }
-		
+	
 	monoArray = mono_array_new(g_domain, monoklass, len);
 	if (len == 0)
 	{
@@ -644,16 +654,49 @@ MonoArray* get_mono_array_impl(Il2CppArray * array, MonoType* etype, bool includ
 	{
 		if (mono_class_is_subclass_of(monoklass, get_wobject_class(), false))
 		{
-			for (int i = 0; i < len; i++)
+			if (!isMonoBehaviourWrapper)
 			{
-				Il2CppObject* il2cppObj = il2cpp_array_get(array, Il2CppObject*, i);
-				//platform_log("array class element15 : %s", il2cpp_class_get_name(il2cpp_object_get_class(il2cppObj)));
-				MonoObject* monoObj = get_mono_object(il2cppObj, monoklass);
-				/*if (monoObj == NULL)
+				for (int i = 0; i < len; i++)
 				{
-					platform_log("mono object %s is null", mono_class_get_name(monoklass));
-				}*/
-				mono_array_setref(monoArray, i, monoObj);
+					Il2CppObject* il2cppObj = il2cpp_array_get(array, Il2CppObject*, i);
+					//platform_log("array class element15 : %s", il2cpp_class_get_name(il2cpp_object_get_class(il2cppObj)));
+					MonoObject* monoObj = get_mono_object(il2cppObj, monoklass);
+					/*if (monoObj == NULL)
+					{
+						platform_log("mono object %s is null", mono_class_get_name(monoklass));
+					}*/
+					mono_array_setref(monoArray, i, monoObj);
+				}
+			}
+			else
+			{
+				int realLen = 0;
+				for (int i = 0; i < len; i++)
+				{
+					Il2CppObject* il2cppObj = il2cpp_array_get(array, Il2CppObject*, i);
+					//platform_log("array class element15 : %s", il2cpp_class_get_name(il2cpp_object_get_class(il2cppObj)));
+					MonoObject* monoObj = get_mono_object(il2cppObj, monoklass);
+					if (monoObj != NULL && mono_object_isinst(monoObj, monoklass))
+					{
+						realLen++;
+						mono_array_setref(monoArray, i, monoObj);
+					}
+				}
+				MonoArray* newarr = mono_array_new(g_domain, monoklass, realLen);
+				if (realLen > 0)
+				{
+					int idx = 0;
+					for (int i = 0; i < len; i++)
+					{
+						MonoObject* o = mono_array_get(monoArray, MonoObject*, i);
+						if (o != NULL)
+						{
+							mono_array_setref(newarr, idx, o);
+							idx++;
+						}
+					}
+				}
+				return newarr;
 			}
 		}
 		else
@@ -1430,12 +1473,12 @@ void process_proxy_component(Il2CppObject* gameObj)
 	for (int i = 0; i < len; i++) {
 		Il2CppObject* i2obj = il2cpp_array_get(retArr, Il2CppObject*, i);
 		WrapperHead* i2head = (WrapperHead*)(i2obj);
+		Il2CppClass* i2class = il2cpp_object_get_class(i2obj);
 		if (i2head->handle != 0) {
-			//platform_log("proxy component skip 1 component");
+			platform_log("proxy component skip 1 component %s", il2cpp_class_get_name(i2class));
 			continue;
 		}
 		//Il2CppObject* go = UnityEngine_Component_get_gameObject(i2obj);
-		Il2CppClass* i2class = il2cpp_object_get_class(i2obj);
 		platform_log("proxy component class: %s", il2cpp_class_get_name(i2class));
 		MonoClass* mclass = get_mono_class(i2class);
 		if (mclass == NULL) {

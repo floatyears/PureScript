@@ -4,12 +4,27 @@
 
 MonoObject* MonoGetObject(void* ptr)
 {
+	if (ptr == NULL)
+	{
+		platform_log("MonoGetObject handle ptr is null");
+		return NULL;
+	}
 	Il2CppObject * i2Obj = (Il2CppObject *)ptr;
-	 return get_mono_object_impl(i2Obj, NULL,TRUE);
+	MonoObject* ret = get_mono_object_impl(i2Obj, NULL,TRUE);
+	if (ret == NULL)
+	{
+		platform_log("mono object is null");
+	}
+	return ret;
 }
 
 void* MonoStoreObject(MonoObject* obj, void* ptr)
 {
+	if (obj == NULL)
+	{
+		platform_log("MonoStoreObject object is null");
+		return NULL;
+	}
 	if (ptr == NULL)
 	{
 		Il2CppClass* i2Class = get_il2cpp_class(mono_object_get_class(obj));
@@ -27,7 +42,7 @@ Il2CppObject* Il2cppGetObject(void* ptr)
 #if DEBUG
 	if (ptr == NULL)
 	{
-		platform_log("il2cpp object is null");
+		platform_log("Il2cppGetObject ptr is null");
 	}
 #endif
 	return (Il2CppObject *)ptr;
@@ -461,7 +476,11 @@ MonoArray* UnityEngine_GameObject_GetComponentsInternal(MonoObject* obj, MonoRef
 		MonoClassField* field = mono_class_get_field_from_name(klass, "posOffsets");
 		MonoArray* value;
 		mono_field_get_value(ret, field, &value);
-		platform_log("getcomponents: %d", value);
+		for (int i = 0; i < mono_array_length(monoRes); i++)
+		{
+			MonoObject* o = mono_array_get(monoRes, MonoObject*, i);
+			platform_log("getcomponents: %d-%d/%d", o, value, value != NULL ? *(int*)((char*)value + sizeof(MonoObject) + sizeof(void*)) : -1);
+		}
 	}
 #endif
 	
@@ -481,7 +500,7 @@ void UnityEngine_GameObject_GetComponentFastPath(MonoObject* obj, MonoReflection
 	if (objs != NULL)
 	{
 		size_t len = mono_array_length(objs);
-
+		int totalCnt = 0;
 		for (int i = 0; i < len; i++)
 		{
 			MonoObject* monoObj = mono_array_get(objs, MonoObject*, i);
@@ -490,11 +509,127 @@ void UnityEngine_GameObject_GetComponentFastPath(MonoObject* obj, MonoReflection
 			MonoClass * tclass = mono_object_get_class(monoObj);
 			if (mono_object_isinst(monoObj, mclass))
 			{
-				mono_gc_wbarrier_generic_store(objPtr, monoObj);
-				break;
+				if (totalCnt == 0)
+				{
+					mono_gc_wbarrier_generic_store(objPtr, monoObj);
+				}
+				else
+				{
+					
+				}
+				//break;
+			}
+		}
+
+		if (totalCnt > 1)
+		{
+			platform_log("UnityEngine_GameObject_GetComponentFastPath has %d componet with type %s", totalCnt, mono_class_get_name(mclass));
+		}
+	}
+}
+
+MonoObject* UnityEngine_GameObject_GetComponentInChildren(MonoObject* thiz, MonoReflectionType* type, bool includeInactive)
+{
+	typedef Il2CppObject* (*ICallMethod) (Il2CppObject* thiz, Il2CppReflectionType* type, bool includeInactive);
+	static ICallMethod icall;
+	if (!icall)
+	{
+		icall = (ICallMethod)il2cpp_resolve_icall("UnityEngine.GameObject::GetComponentInChildren");
+		if (!icall)
+		{
+			platform_log("UnityEngine.GameObject::GetComponentInChildren func not found");
+			return NULL;
+		}
+	}
+	Il2CppObject* i2thiz = get_il2cpp_object(thiz, il2cpp_get_class_UnityEngine_GameObject());
+	Il2CppReflectionType* i2type = get_il2cpp_reflection_type(type);
+	MonoObject* monoi2res = NULL;
+	if (i2type == get_monobehaviour_wrapper_rtype()) //此类型是在mono侧中，需要在components中遍历
+	{
+		MonoArray* arr = UnityEngine_GameObject_GetComponentsInternal(thiz, type, TRUE, TRUE, TRUE, FALSE, NULL);
+		int len = 0;
+		if (arr != NULL && (len = mono_array_length(arr)) > 0)
+		{
+			MonoType* monoType = mono_reflection_type_get_type(type);
+			MonoClass* mclass = mono_class_from_mono_type(monoType);
+			for (int i = 0; i < len; i++)
+			{
+				MonoObject* monoObj = mono_array_get(arr, MonoObject*, i);
+				if (monoObj == NULL)
+					continue;
+				MonoClass* tclass = mono_object_get_class(monoObj);
+				if (mono_object_isinst(monoObj, mclass))
+				{
+					monoi2res = monoObj;
+					break;
+				}
 			}
 		}
 	}
+	else
+	{
+		Il2CppObject* i2res = icall(i2thiz, i2type, includeInactive);
+		MonoType* monoType = mono_reflection_type_get_type(type);
+		MonoClass* mclass = mono_class_from_mono_type(monoType);
+		monoi2res = get_mono_object(i2res, mclass);
+		if (i2res != NULL && monoi2res == NULL)
+		{
+			platform_log("UnityEngine.GameObject::GetComponentInChildren fail to convert il2cpp obj to mono");
+		}
+	}
+	return monoi2res;
+}
+MonoObject* UnityEngine_GameObject_GetComponentInParent(MonoObject* thiz, MonoReflectionType* type, bool includeInactive)
+{
+	typedef Il2CppObject* (*ICallMethod) (Il2CppObject* thiz, Il2CppReflectionType* type, bool includeInactive);
+	static ICallMethod icall;
+	if (!icall)
+	{
+		icall = (ICallMethod)il2cpp_resolve_icall("UnityEngine.GameObject::GetComponentInParent");
+		if (!icall)
+		{
+			platform_log("UnityEngine.GameObject::GetComponentInParent func not found");
+			return NULL;
+		}
+	}
+	Il2CppObject* i2thiz = get_il2cpp_object(thiz, il2cpp_get_class_UnityEngine_GameObject());
+	Il2CppReflectionType* i2type = get_il2cpp_reflection_type(type);
+	MonoObject* monoi2res = NULL;
+	if (i2type == get_monobehaviour_wrapper_rtype()) //此类型是在mono侧中，需要在components中遍历
+	{
+		MonoArray* arr = UnityEngine_GameObject_GetComponentsInternal(thiz, type, TRUE, TRUE, FALSE, TRUE, NULL);
+		int len = 0;
+		if (arr != NULL && (len = mono_array_length(arr)) > 0)
+		{
+			MonoType* monoType = mono_reflection_type_get_type(type);
+			MonoClass* mclass = mono_class_from_mono_type(monoType);
+			for (int i = 0; i < len; i++)
+			{
+				MonoObject* monoObj = mono_array_get(arr, MonoObject*, i);
+				if (monoObj == NULL)
+					continue;
+				MonoClass* tclass = mono_object_get_class(monoObj);
+				if (mono_object_isinst(monoObj, mclass))
+				{
+					monoi2res = monoObj;
+					break;
+				}
+			}
+		}
+	}
+	else
+	{
+		Il2CppObject* i2res = icall(i2thiz, i2type, includeInactive);
+		MonoType* monoType = mono_reflection_type_get_type(type);
+		MonoClass* mclass = mono_class_from_mono_type(monoType);
+		monoi2res = get_mono_object(i2res, mclass);
+		if (i2res != NULL && monoi2res == NULL)
+		{
+			platform_log("UnityEngine.GameObject::GetComponentInParent fail to convert il2cpp obj to mono");
+		}
+	}
+	
+	return monoi2res;
 }
 
 MonoObject* UnityEngine_Component_get_gameObject(MonoObject* thiz);
@@ -625,6 +760,8 @@ void mono_register_icall(void)
 	mono_add_internal_call("UnityEngine.GameObject::GetComponentFastPath", (void*)UnityEngine_GameObject_GetComponentFastPath);
 	mono_add_internal_call("UnityEngine.Component::GetComponentFastPath", (void*)UnityEngine_Component_GetComponentFastPath);
 	mono_add_internal_call("UnityEngine.GameObject::GetComponentsInternal", (void*)UnityEngine_GameObject_GetComponentsInternal);
+	mono_add_internal_call("UnityEngine.GameObject::GetComponentInChildren", (void*)UnityEngine_GameObject_GetComponentInChildren);
+	mono_add_internal_call("UnityEngine.GameObject::GetComponentInParent", (void*)UnityEngine_GameObject_GetComponentInParent);
 
 	//Aono_add_internal_call("UnityEngine.MonoBehaviour::IsObjectMonoBehaviour", (void*)UnityEngine_MonoBehaviour_IsObjectMonoBehaviour);
 	mono_add_internal_call("UnityEngine.MonoBehaviour::StartCoroutineManaged2", (void*)UnityEngine_MonoBehaviour_StartCoroutineManaged2);

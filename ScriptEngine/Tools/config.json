@@ -4,6 +4,5 @@
   "AOTSet" : [],
   "InterpSet": ["Scripts.dll" ],
   "Entry":["Scripts.dll"],
-  "AssembliesCheck": [
-                  {"Assembly" : "Scripts.dll" , "Source" : "E:/Projects/Project_LZ/client/Art/Assets/Source/Scripts", "Filter" : "*.cs"}]
+  "AssembliesCheck": [{"Assembly" : "Scripts.dll" , "Source" : "E:/Projects/Project_LZ/client1/client/Art/Assets/Source/Scripts", "Filter" : "*.cs"}]
 }

@@ -8567,52 +8567,6 @@ MonoObject* UnityEngine_GameObject_GetComponent(MonoObject* thiz, MonoReflection
 	}
 	return monoi2res;
 }
-MonoObject* UnityEngine_GameObject_GetComponentInChildren(MonoObject* thiz, MonoReflectionType* type, bool includeInactive)
-{
-	typedef Il2CppObject* (* ICallMethod) (Il2CppObject* thiz, Il2CppReflectionType* type, bool includeInactive);
-	static ICallMethod icall;
-	if(!icall)
-	{
-		icall = (ICallMethod)il2cpp_resolve_icall("UnityEngine.GameObject::GetComponentInChildren");
-		if(!icall)
-		{
-			platform_log("UnityEngine.GameObject::GetComponentInChildren func not found");
-			return NULL;
-		}
-	}
-	Il2CppObject* i2thiz = get_il2cpp_object(thiz,il2cpp_get_class_UnityEngine_GameObject());
-	Il2CppReflectionType* i2type = get_il2cpp_reflection_type(type);
-	Il2CppObject* i2res = icall(i2thiz,i2type,includeInactive);
-	MonoObject* monoi2res = get_mono_object(i2res,mono_get_class_UnityEngine_Component());
-	if(i2res != NULL && monoi2res == NULL)
-	{
-		platform_log("UnityEngine.GameObject::GetComponentInChildren fail to convert il2cpp obj to mono");
-	}
-	return monoi2res;
-}
-MonoObject* UnityEngine_GameObject_GetComponentInParent(MonoObject* thiz, MonoReflectionType* type, bool includeInactive)
-{
-	typedef Il2CppObject* (* ICallMethod) (Il2CppObject* thiz, Il2CppReflectionType* type, bool includeInactive);
-	static ICallMethod icall;
-	if(!icall)
-	{
-		icall = (ICallMethod)il2cpp_resolve_icall("UnityEngine.GameObject::GetComponentInParent");
-		if(!icall)
-		{
-			platform_log("UnityEngine.GameObject::GetComponentInParent func not found");
-			return NULL;
-		}
-	}
-	Il2CppObject* i2thiz = get_il2cpp_object(thiz,il2cpp_get_class_UnityEngine_GameObject());
-	Il2CppReflectionType* i2type = get_il2cpp_reflection_type(type);
-	Il2CppObject* i2res = icall(i2thiz,i2type,includeInactive);
-	MonoObject* monoi2res = get_mono_object(i2res,mono_get_class_UnityEngine_Component());
-	if(i2res != NULL && monoi2res == NULL)
-	{
-		platform_log("UnityEngine.GameObject::GetComponentInParent fail to convert il2cpp obj to mono");
-	}
-	return monoi2res;
-}
 void UnityEngine_GameObject_TryGetComponentFastPath(MonoObject* thiz, MonoReflectionType* type, void * oneFurtherThanResultValue)
 {
 	typedef void (* ICallMethod) (Il2CppObject* thiz, Il2CppReflectionType* type, void * oneFurtherThanResultValue);
@@ -18189,8 +18143,6 @@ void regist_icall_gen()
 	mono_add_internal_call("UnityEngine.GameObject::get_tag",(void*) UnityEngine_GameObject_get_tag);
 	mono_add_internal_call("UnityEngine.GameObject::set_tag",(void*) UnityEngine_GameObject_set_tag);
 	mono_add_internal_call("UnityEngine.GameObject::GetComponent",(void*) UnityEngine_GameObject_GetComponent);
-	mono_add_internal_call("UnityEngine.GameObject::GetComponentInChildren",(void*) UnityEngine_GameObject_GetComponentInChildren);
-	mono_add_internal_call("UnityEngine.GameObject::GetComponentInParent",(void*) UnityEngine_GameObject_GetComponentInParent);
 	mono_add_internal_call("UnityEngine.GameObject::TryGetComponentFastPath",(void*) UnityEngine_GameObject_TryGetComponentFastPath);
 	mono_add_internal_call("UnityEngine.GameObject::SetActive",(void*) UnityEngine_GameObject_SetActive);
 	mono_add_internal_call("UnityEngine.GameObject::CompareTag",(void*) UnityEngine_GameObject_CompareTag);

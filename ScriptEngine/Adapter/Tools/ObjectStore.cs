@@ -26,8 +26,11 @@ internal static class ObjectStore
 
     public static IntPtr Store(object obj)
     {
-        if (obj == null)
-            return IntPtr.Zero;
+        // if (obj == null)
+        // {
+        //     UnityEngine.Debug.LogError("ObjectStore.Store() obj is null");
+        //     return IntPtr.Zero;
+        // }
 
         return GetObjectPtr(obj);
     }
@@ -35,8 +38,11 @@ internal static class ObjectStore
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static T Get<T>(IntPtr handle) where T : class
     {
-        if (handle == IntPtr.Zero)
-            return null;
+        // if (handle == IntPtr.Zero)
+        // {
+        //     UnityEngine.Debug.LogError("ObjectStore.Get() handle is IntPtr.Zero");
+        //     return null;
+        // }
 
         var obj = GetObject(handle);
         return obj as T;
